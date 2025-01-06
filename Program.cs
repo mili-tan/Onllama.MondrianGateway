@@ -3,7 +3,6 @@ using System.Text;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json.Linq;
@@ -16,15 +15,43 @@ namespace Onllama.MondrianGateway
 {
     internal class Program
     {
+        public static List<string> NonChatApiPathList = new List<string>
+        {
+            "/api/generate", "/api/chat", "/api/tags", "/api/embed", "/api/show", "/api/ps", "/api/embeddings"
+        };
+
+        public static string TargetApiUrl = "http://127.0.0.1:11434";
+        public static string ActionApiUrl = "http://127.0.0.1:11434";
+
+        public static bool UseToken = false;
+        public static bool UseModelReplace = true;
+        public static bool UseRiskModel = true;
+
+        public static string RiskModel = "shieldgemma:2b";
+        public static string RiskModelPrompt = string.Empty;
+
+        public static Dictionary<string, string> ModelReplaceDictionary = new()
+        {
+            {"gpt-3.5-turbo", "qwen2.5:7b"}
+        };
+
+        public static List<string> TokenList = ["sk-test-token"];
+
+        public static List<string> RiskKeywordsList = ["YES", "UNSAFE"];
+
+
+        public static OllamaApiClient OllamaApi = new OllamaApiClient(new Uri(ActionApiUrl));
+
+
         static void Main(string[] args)
         {
             try
             {
-                var ollama = new OllamaApiClient(new Uri("http://localhost:11434"));
-                var paths = new List<string>
-                {
-                    "/api/generate", "/api/chat", "/api/tags", "/api/embed", "/api/show", "/api/ps", "/api/embeddings"
-                };
+                //var configurationRoot = new ConfigurationBuilder()
+                //    .AddEnvironmentVariables()
+                //    .Build();
+                //if (!configurationRoot.GetSection("MondrianGateway").Exists()) return;
+                //var config = configurationRoot.GetSection("MondrianGateway");
 
                 var host = new WebHostBuilder()
                     .UseKestrel()
@@ -45,11 +72,11 @@ namespace Onllama.MondrianGateway
                     {
                         app.Use(async (context, next) =>
                         {
-                            var token = context.Request.Headers.ContainsKey("Authorization")
+                            var reqToken = context.Request.Headers.ContainsKey("Authorization")
                                 ? context.Request.Headers.Authorization.ToString().Split(' ').Last().ToString()
                                 : string.Empty;
-                            //if (token != "sk-")
-                            if (false)
+
+                            if (UseToken && !TokenList.Contains(reqToken))
                             {
                                 context.Response.Headers.ContentType = "application/json";
                                 context.Response.StatusCode = (int) HttpStatusCode.Forbidden;
@@ -69,12 +96,12 @@ namespace Onllama.MondrianGateway
                             }
                             else
                             {
-                                context.Items["Token"] = token;
+                                context.Items["Token"] = reqToken;
                                 await next.Invoke();
                             }
                         });
 
-                        foreach (var path in paths)
+                        foreach (var path in NonChatApiPathList)
                             app.Map(path, svr =>
                             {
                                 svr.RunProxy(async context =>
@@ -82,8 +109,7 @@ namespace Onllama.MondrianGateway
                                     var response = new HttpResponseMessage();
                                     try
                                     {
-                                        response = await context.ForwardTo(new Uri("http://127.0.0.1:11434" + path))
-                                            .Send();
+                                        response = await context.ForwardTo(new Uri(TargetApiUrl + path)).Send();
                                         response.Headers.Add("X-Forwarder-By", "MondrianGateway/0.1");
                                         return response;
                                     }
@@ -95,63 +121,8 @@ namespace Onllama.MondrianGateway
                                 });
                             });
 
-                        app.Map("/v1", svr =>
-                        {
-                            svr.RunProxy(async context =>
-                            {
-                                HttpResponseMessage response;
-                                try
-                                {
-                                    if (context.Request.Method.ToUpper() == "POST")
-                                    {
-                                        var body = await new StreamReader(context.Request.Body).ReadToEndAsync();
-                                        var jBody = JObject.Parse(body);
+                        app.Map("/v1", HandleOpenaiStyleChat);
 
-                                        if (jBody["model"]?.ToString() == "gpt-3.5-turbo") jBody["model"] = "qwen2.5:7b";
-                                        Console.WriteLine(jBody.ToString());
-
-                                        var msgs = jBody["messages"]?.ToObject<List<Message>>();
-                                        await foreach (var res in ollama.ChatAsync(new ChatRequest()
-                                                           {Model = "shieldgemma:2b", Messages = msgs, Stream = false}))
-                                        {
-                                            Console.WriteLine(res?.Message.Content);
-                                            var risks = res?.Message.Content?.ToLower();
-                                            if (risks != null && (risks.Contains("yes") || risks.Contains("unsafe")))
-                                            {
-                                                return new HttpResponseMessage(HttpStatusCode.UnavailableForLegalReasons)
-                                                {
-                                                    Content = new StringContent(new JObject()
-                                                    {
-                                                        {
-                                                            "error", new JObject()
-                                                            {
-                                                                {"message", "Messages with content security risks. Unable to continue."},
-                                                                {"type", "content_risks"},
-                                                                {"risk_model", res?.Model},
-                                                                {"risk_raw_msg", res?.Message.Content}
-                                                            }
-                                                        }
-                                                    }.ToString())
-                                                };
-                                            }
-                                        }
-
-                                        context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(jBody.ToString()));
-                                        context.Request.ContentLength = context.Request.Body.Length;
-                                    }
-
-                                    response = await context.ForwardTo(new Uri("http://127.0.0.1:11434/v1")).Send();
-                                    response.Headers.Add("X-Forwarder-By", "MondrianGateway/0.1");
-                                    return response;
-                                }
-                                catch (Exception e)
-                                {
-                                    Console.WriteLine(e);
-                                    response = await context.ForwardTo(new Uri("http://127.0.0.1:11434/v1")).Send();
-                                    return response;
-                                }
-                            });
-                        });
                     }).Build();
 
                 host.Run();
@@ -160,6 +131,85 @@ namespace Onllama.MondrianGateway
             {
                 Console.WriteLine(e);
             }
+        }
+
+        private static void HandleOpenaiStyleChat(IApplicationBuilder svr)
+        {
+            svr.RunProxy(async context =>
+            {
+                HttpResponseMessage response;
+                try
+                {
+                    if (context.Request.Method.ToUpper() == "POST")
+                    {
+                        var body = await new StreamReader(context.Request.Body).ReadToEndAsync();
+                        var jBody = JObject.Parse(body);
+
+                        if (jBody.ContainsKey("model") && UseModelReplace &&
+                            ModelReplaceDictionary.TryGetValue(jBody["model"]?.ToString()!, out var newModel))
+                            jBody["model"] = newModel;
+
+                        Console.WriteLine(jBody.ToString());
+
+                        if (jBody.ContainsKey("messages"))
+                        {
+                            var msgs = jBody["messages"]?.ToObject<List<Message>>();
+                            if (msgs != null && msgs.Any())
+                            {
+                                if (UseRiskModel)
+                                {
+                                    if (!string.IsNullOrWhiteSpace(RiskModelPrompt))
+                                    {
+                                        msgs.RemoveAll(x => x.Role == ChatRole.System);
+                                        msgs.Add(new Message { Role = ChatRole.System, Content = RiskModelPrompt });
+                                    }
+
+                                    await foreach (var res in OllamaApi.ChatAsync(new ChatRequest()
+                                                       { Model = RiskModel, Messages = msgs, Stream = false }))
+                                    {
+                                        var risks = res?.Message.Content?.ToUpper();
+                                        Console.WriteLine(risks);
+                                        if (risks != null && RiskKeywordsList.Any(x => risks.Contains(x)))
+                                        {
+                                            return new HttpResponseMessage(HttpStatusCode.UnavailableForLegalReasons)
+                                            {
+                                                Content = new StringContent(new JObject
+                                                {
+                                                    {
+                                                        "error",
+                                                        new JObject
+                                                        {
+                                                            {
+                                                                "message",
+                                                                "Messages with content security risks. Unable to continue."
+                                                            },
+                                                            {"type", "content_risks"}, {"risk_model", res?.Model},
+                                                            {"risk_raw_msg", res?.Message.Content}
+                                                        }
+                                                    }
+                                                }.ToString())
+                                            };
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(jBody.ToString()));
+                        context.Request.ContentLength = context.Request.Body.Length;
+                    }
+
+                    response = await context.ForwardTo(new Uri(TargetApiUrl + "/v1")).Send();
+                    response.Headers.Add("X-Forwarder-By", "MondrianGateway/0.1");
+                    return response;
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e);
+                    response = await context.ForwardTo(new Uri(TargetApiUrl + "/v1")).Send();
+                    return response;
+                }
+            });
         }
     }
 }
