@@ -161,7 +161,7 @@ namespace Onllama.MondrianGateway
                                     if (!string.IsNullOrWhiteSpace(RiskModelPrompt))
                                     {
                                         msgs.RemoveAll(x => x.Role == ChatRole.System);
-                                        msgs.Add(new Message { Role = ChatRole.System, Content = RiskModelPrompt });
+                                        msgs.Insert(0, new Message {Role = ChatRole.System, Content = RiskModelPrompt});
                                     }
 
                                     await foreach (var res in OllamaApi.ChatAsync(new ChatRequest()
