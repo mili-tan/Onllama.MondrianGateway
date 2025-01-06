@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json.Linq;
 using OllamaSharp;
@@ -15,10 +16,8 @@ namespace Onllama.MondrianGateway
 {
     internal class Program
     {
-        public static List<string> NonChatApiPathList = new List<string>
-        {
-            "/api/generate", "/api/chat", "/api/tags", "/api/embed", "/api/show", "/api/ps", "/api/embeddings"
-        };
+        public static List<string> NonChatApiPathList =
+            ["/api/generate", "/api/chat", "/api/tags", "/api/embed", "/api/show", "/api/ps", "/api/embeddings"];
 
         public static string TargetApiUrl = "http://127.0.0.1:11434";
         public static string ActionApiUrl = "http://127.0.0.1:11434";
@@ -35,8 +34,7 @@ namespace Onllama.MondrianGateway
             {"gpt-3.5-turbo", "qwen2.5:7b"}
         };
 
-        public static List<string> TokenList = ["sk-test-token"];
-
+        public static List<string> TokensList = ["sk-test-token"];
         public static List<string> RiskKeywordsList = ["YES", "UNSAFE"];
 
 
@@ -47,11 +45,36 @@ namespace Onllama.MondrianGateway
         {
             try
             {
-                //var configurationRoot = new ConfigurationBuilder()
-                //    .AddEnvironmentVariables()
-                //    .Build();
-                //if (!configurationRoot.GetSection("MondrianGateway").Exists()) return;
-                //var config = configurationRoot.GetSection("MondrianGateway");
+                var configurationRoot = new ConfigurationBuilder()
+                    .AddEnvironmentVariables()
+                    .Build();
+
+                if (!configurationRoot.GetSection("MondrianGateway").Exists()) return;
+                var gateConfig = configurationRoot.GetSection("MondrianGateway");
+
+                if (gateConfig.GetSection("Tokens").Exists())
+                {
+                    TokensList = gateConfig.GetSection("Tokens").Get<List<string>>() ?? [];
+                    if (TokensList.Any()) UseToken = true;
+                }
+                if (gateConfig.GetSection("ModelReplace").Exists())
+                {
+                    ModelReplaceDictionary = gateConfig.GetSection("ModelReplace").Get<Dictionary<string,string>>() ?? new Dictionary<string, string>();
+                    if (ModelReplaceDictionary.Any()) UseRiskModel = true;
+                }
+                if (gateConfig.GetSection("Risks").Exists())
+                {
+                    var riskConfig = gateConfig.GetSection("Risks");
+                    if (riskConfig.GetSection("RiskModel").Exists()) RiskModel = riskConfig.GetValue<string>("RiskModel") ?? string.Empty;
+                    if (riskConfig.GetSection("RiskModelPrompt").Exists()) RiskModelPrompt = riskConfig.GetValue<string>("RiskModelPrompt") ?? string.Empty;
+                    if (riskConfig.GetSection("RiskKeywords").Exists()) RiskKeywordsList = riskConfig.GetSection("RiskKeywords").Get<List<string>>() ?? [];
+                    if (!string.IsNullOrWhiteSpace(RiskModel) && RiskKeywordsList.Any()) UseRiskModel = true;
+                }
+
+                if (gateConfig.GetSection("UseToken").Exists()) UseToken = gateConfig.GetValue<bool>("UseToken");
+                if (gateConfig.GetSection("UseModelReplace").Exists()) UseModelReplace = gateConfig.GetValue<bool>("UseModelReplace");
+                if (gateConfig.GetSection("UseRiskModel").Exists()) UseModelReplace = gateConfig.GetValue<bool>("UseRiskModel");
+
 
                 var host = new WebHostBuilder()
                     .UseKestrel()
@@ -76,14 +99,14 @@ namespace Onllama.MondrianGateway
                                 ? context.Request.Headers.Authorization.ToString().Split(' ').Last().ToString()
                                 : string.Empty;
 
-                            if (UseToken && !TokenList.Contains(reqToken))
+                            if (UseToken && !TokensList.Contains(reqToken))
                             {
                                 context.Response.Headers.ContentType = "application/json";
                                 context.Response.StatusCode = (int) HttpStatusCode.Forbidden;
                                 await context.Response.WriteAsync(new JObject()
                                 {
                                     {
-                                        "error", new JObject()
+                                        "error", new JObject
                                         {
                                             {
                                                 "message",
@@ -167,9 +190,9 @@ namespace Onllama.MondrianGateway
                                     await foreach (var res in OllamaApi.ChatAsync(new ChatRequest()
                                                        { Model = RiskModel, Messages = msgs, Stream = false }))
                                     {
-                                        var risks = res?.Message.Content?.ToUpper();
+                                        var risks = res?.Message.Content;
                                         Console.WriteLine(risks);
-                                        if (risks != null && RiskKeywordsList.Any(x => risks.Contains(x)))
+                                        if (risks != null && RiskKeywordsList.Any(x => risks.ToUpper().Contains(x.ToUpper())))
                                         {
                                             return new HttpResponseMessage(HttpStatusCode.UnavailableForLegalReasons)
                                             {
@@ -191,6 +214,7 @@ namespace Onllama.MondrianGateway
                                             };
                                         }
                                     }
+
                                 }
                             }
                         }
