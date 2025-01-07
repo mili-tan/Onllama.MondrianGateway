@@ -23,8 +23,12 @@ namespace Onllama.MondrianGateway
         public static string ActionApiUrl = "http://127.0.0.1:11434";
 
         public static bool UseToken = false;
+        public static bool UseTokenReplace = false;
         public static bool UseModelReplace = true;
         public static bool UseRiskModel = true;
+
+        public static string TokenReplaceMode = "first";
+        public static List<string> TokenReplaceList = ["sk-test"];
 
         public static string RiskModel = "shieldgemma:2b";
         public static string RiskModelPrompt = string.Empty;
@@ -191,6 +195,22 @@ namespace Onllama.MondrianGateway
 
                         Console.WriteLine(jBody.ToString());
 
+                        if (UseTokenReplace)
+                        {
+                            context.Request.Headers.Remove("Authorization");
+                            if (TokenReplaceMode is "first" or "failback")
+                            {
+                                context.Request.Headers.Authorization =
+                                    "Bearer " + TokenReplaceList.FirstOrDefault();
+                            }
+                            else if (TokenReplaceMode == "random")
+                            {
+                                context.Request.Headers.Authorization =
+                                    "Bearer " + TokenReplaceList.ToArray()[
+                                        new Random().Next(TokenReplaceList.Count - 1)];
+                            }
+                        }
+
                         if (jBody.ContainsKey("messages"))
                         {
                             var msgs = jBody["messages"]?.ToObject<List<Message>>();
@@ -242,6 +262,15 @@ namespace Onllama.MondrianGateway
 
                     response = await context.ForwardTo(new Uri(TargetApiUrl + "/v1")).Send();
                     response.Headers.Add("X-Forwarder-By", "MondrianGateway/0.1");
+
+                    var statusCode = Convert.ToInt32(response.StatusCode);
+                    if (UseTokenReplace && TokenReplaceMode == "failback" && TokenReplaceList.Any() &&
+                        statusCode is >= 400 and < 500)
+                    {
+                        TokenReplaceList.Add(TokenReplaceList.First());
+                        TokenReplaceList.RemoveAt(0);
+                    }
+
                     return response;
                 }
                 catch (Exception e)
