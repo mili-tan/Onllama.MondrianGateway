@@ -11,7 +11,6 @@ using Newtonsoft.Json.Linq;
 using OllamaSharp;
 using OllamaSharp.Models.Chat;
 using ProxyKit;
-using static OllamaSharp.Models.Chat.Message;
 
 
 namespace Onllama.MondrianGateway
@@ -26,13 +25,13 @@ namespace Onllama.MondrianGateway
 
         public static bool UseToken = false;
         public static bool UseTokenReplace = false;
-        public static bool UseModelReplace = true;
-        public static bool UseRiskModel = true;
-        public static bool UseSystemPromptTrim = true;
-        public static bool UseSystemPromptInject = true;
+        public static bool UseModelReplace = false;
+        public static bool UseRiskModel = false;
+        public static bool UseSystemPromptTrim = false;
+        public static bool UseSystemPromptInject = false;
 
-        public static string TokenReplaceMode = "first";
-        public static List<string> TokenReplaceList = ["sk-test"];
+        public static string ReplaceTokenMode = "failback";
+        public static List<string> ReplaceTokensList = ["sk-test"];
 
         public static string RiskModel = "shieldgemma:2b";
         public static string RiskModelPrompt = string.Empty;
@@ -67,12 +66,28 @@ namespace Onllama.MondrianGateway
                         if (TokensList.Any()) UseToken = true;
                     }
 
+                    if (gateConfig.GetSection("ReplaceTokens").Exists())
+                    {
+                        ReplaceTokensList = gateConfig.GetSection("ReplaceTokens").Get<List<string>>() ?? [];
+                        if (ReplaceTokensList.Any()) UseTokenReplace = true;
+                    }
+
                     if (gateConfig.GetSection("ModelReplace").Exists())
                     {
                         ModelReplaceDictionary =
                             gateConfig.GetSection("ModelReplace").Get<Dictionary<string, string>>() ??
                             new Dictionary<string, string>();
-                        if (ModelReplaceDictionary.Any()) UseRiskModel = true;
+                        if (ModelReplaceDictionary.Any()) UseModelReplace = true;
+                    }
+
+                    if (gateConfig.GetSection("SystemPrompt").Exists())
+                    {
+                        SystemPrompt = gateConfig.GetValue<string>("SystemPrompt") ?? string.Empty;
+                        if (string.IsNullOrWhiteSpace(SystemPrompt))
+                        {
+                            UseSystemPromptInject = true;
+                            UseSystemPromptTrim = true;
+                        }
                     }
 
                     if (gateConfig.GetSection("Risks").Exists())
@@ -87,12 +102,21 @@ namespace Onllama.MondrianGateway
                         if (!string.IsNullOrWhiteSpace(RiskModel) && RiskKeywordsList.Any()) UseRiskModel = true;
                     }
 
-                    if (gateConfig.GetSection("UseToken").Exists()) UseToken = gateConfig.GetValue<bool>("UseToken");
+                    if (gateConfig.GetSection("UseToken").Exists()) 
+                        UseToken = gateConfig.GetValue<bool>("UseToken");
                     if (gateConfig.GetSection("UseModelReplace").Exists())
                         UseModelReplace = gateConfig.GetValue<bool>("UseModelReplace");
+                    if (gateConfig.GetSection("UseTokenReplace").Exists())
+                        UseTokenReplace = gateConfig.GetValue<bool>("UseTokenReplace");
                     if (gateConfig.GetSection("UseRiskModel").Exists())
-                        UseModelReplace = gateConfig.GetValue<bool>("UseRiskModel");
+                        UseRiskModel = gateConfig.GetValue<bool>("UseRiskModel");
+                    if (gateConfig.GetSection("UseSystemPromptTrim").Exists())
+                        UseSystemPromptTrim = gateConfig.GetValue<bool>("UseSystemPromptTrim");
+                    if (gateConfig.GetSection("UseSystemPromptInject").Exists())
+                        UseSystemPromptInject = gateConfig.GetValue<bool>("UseSystemPromptInject");
 
+                    if (gateConfig.GetSection("ReplaceTokenMode").Exists())
+                        ReplaceTokenMode = gateConfig.GetValue<string>("ReplaceTokenMode") ?? ReplaceTokenMode;
                     if (gateConfig.GetSection("TargetApiUrl").Exists())
                         TargetApiUrl = gateConfig.GetValue<string>("TargetApiUrl") ?? TargetApiUrl;
                     if (gateConfig.GetSection("ActionApiUrl").Exists())
@@ -203,16 +227,16 @@ namespace Onllama.MondrianGateway
                         if (UseTokenReplace)
                         {
                             context.Request.Headers.Remove("Authorization");
-                            if (TokenReplaceMode is "first" or "failback")
+                            if (ReplaceTokenMode is "first" or "failback")
                             {
                                 context.Request.Headers.Authorization =
-                                    "Bearer " + TokenReplaceList.FirstOrDefault();
+                                    "Bearer " + ReplaceTokensList.FirstOrDefault();
                             }
-                            else if (TokenReplaceMode == "random")
+                            else if (ReplaceTokenMode == "random")
                             {
                                 context.Request.Headers.Authorization =
-                                    "Bearer " + TokenReplaceList.ToArray()[
-                                        new Random().Next(TokenReplaceList.Count - 1)];
+                                    "Bearer " + ReplaceTokensList.ToArray()[
+                                        new Random().Next(ReplaceTokensList.Count - 1)];
                             }
                         }
 
@@ -283,11 +307,11 @@ namespace Onllama.MondrianGateway
                     response.Headers.Add("X-Forwarder-By", "MondrianGateway/0.1");
 
                     var statusCode = Convert.ToInt32(response.StatusCode);
-                    if (UseTokenReplace && TokenReplaceMode == "failback" && TokenReplaceList.Any() &&
+                    if (UseTokenReplace && ReplaceTokenMode == "failback" && ReplaceTokensList.Any() &&
                         statusCode is >= 400 and < 500)
                     {
-                        TokenReplaceList.Add(TokenReplaceList.First());
-                        TokenReplaceList.RemoveAt(0);
+                        ReplaceTokensList.Add(ReplaceTokensList.First());
+                        ReplaceTokensList.RemoveAt(0);
                     }
 
                     return response;
