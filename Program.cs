@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Text;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -10,6 +11,7 @@ using Newtonsoft.Json.Linq;
 using OllamaSharp;
 using OllamaSharp.Models.Chat;
 using ProxyKit;
+using static OllamaSharp.Models.Chat.Message;
 
 
 namespace Onllama.MondrianGateway
@@ -26,12 +28,15 @@ namespace Onllama.MondrianGateway
         public static bool UseTokenReplace = false;
         public static bool UseModelReplace = true;
         public static bool UseRiskModel = true;
+        public static bool UseSystemPromptTrim = true;
+        public static bool UseSystemPromptInject = true;
 
         public static string TokenReplaceMode = "first";
         public static List<string> TokenReplaceList = ["sk-test"];
 
         public static string RiskModel = "shieldgemma:2b";
         public static string RiskModelPrompt = string.Empty;
+        public static string SystemPrompt = "你是Bob，你是一个友好的助手。";
 
         public static Dictionary<string, string> ModelReplaceDictionary = new()
         {
@@ -216,20 +221,34 @@ namespace Onllama.MondrianGateway
                             var msgs = jBody["messages"]?.ToObject<List<Message>>();
                             if (msgs != null && msgs.Any())
                             {
+                                if (UseSystemPromptTrim)
+                                {
+                                    msgs.RemoveAll(x => string.Equals(x.Role, ChatRole.System.ToString(),
+                                        StringComparison.CurrentCultureIgnoreCase));
+                                    jBody["messages"] = JArray.FromObject(msgs);
+                                }
+
+                                if (UseSystemPromptInject && !string.IsNullOrWhiteSpace(SystemPrompt))
+                                {
+                                    msgs.Insert(0, new Message { Role = ChatRole.System.ToString(), Content = SystemPrompt });
+                                    jBody["messages"] = JArray.FromObject(msgs);
+                                    Console.WriteLine(jBody.ToString());
+                                }
+
                                 if (UseRiskModel)
                                 {
-                                    if (!string.IsNullOrWhiteSpace(RiskModelPrompt))
-                                    {
-                                        msgs.RemoveAll(x => x.Role == ChatRole.System);
-                                        msgs.Insert(0, new Message {Role = ChatRole.System, Content = RiskModelPrompt});
-                                    }
-
                                     await foreach (var res in OllamaApi.ChatAsync(new ChatRequest()
-                                                       { Model = RiskModel, Messages = msgs, Stream = false }))
+                                                   {
+                                                       Model = RiskModel,
+                                                       Messages = msgs.Select(x =>
+                                                           new OllamaSharp.Models.Chat.Message(x.Role, x.Content)),
+                                                       Stream = false
+                                                   }))
                                     {
                                         var risks = res?.Message.Content;
                                         Console.WriteLine(risks);
-                                        if (risks != null && RiskKeywordsList.Any(x => risks.ToUpper().Contains(x.ToUpper())))
+                                        if (risks != null &&
+                                            RiskKeywordsList.Any(x => risks.ToUpper().Contains(x.ToUpper())))
                                         {
                                             return new HttpResponseMessage(HttpStatusCode.UnavailableForLegalReasons)
                                             {
@@ -281,5 +300,23 @@ namespace Onllama.MondrianGateway
                 }
             });
         }
+    }
+
+    public class Message
+    {
+        [JsonPropertyName("role")] public string? Role { get; set; }
+        [JsonPropertyName("content")] public string? Content { get; set; }
+
+        [JsonPropertyName("images")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public object? Images { get; set; }
+
+        [JsonPropertyName("image_url")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public object? ImageUrl { get; set; }
+
+        [JsonPropertyName("tool_calls")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public object? ToolCalls { get; set; }
     }
 }
