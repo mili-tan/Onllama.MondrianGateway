@@ -1,16 +1,21 @@
 ﻿using System.Net;
 using System.Text;
 using System.Text.Json.Serialization;
+using Force.DeepCloner;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using NetTopologySuite.IO;
 using Newtonsoft.Json.Linq;
+using NRedisStack.RedisStackCommands;
 using OllamaSharp;
 using OllamaSharp.Models.Chat;
+using Org.BouncyCastle.Utilities;
 using ProxyKit;
+using StackExchange.Redis;
 
 
 namespace Onllama.MondrianGateway
@@ -29,6 +34,11 @@ namespace Onllama.MondrianGateway
         public static bool UseRiskModel = false;
         public static bool UseSystemPromptTrim = false;
         public static bool UseSystemPromptInject = false;
+
+        public static string RedisDBStr = "";
+        public static ConnectionMultiplexer RedisConnection;
+        public static IDatabase RedisDatabase;
+
 
         public static string ReplaceTokenMode = "failback";
         public static List<string> ReplaceTokensList = ["sk-test"];
@@ -53,8 +63,8 @@ namespace Onllama.MondrianGateway
             try
             {
                 var configurationRoot = new ConfigurationBuilder()
-                    .AddEnvironmentVariables()
-                    .Build();
+                .AddEnvironmentVariables()
+                .Build();
 
                 if (configurationRoot.GetSection("MondrianGateway").Exists())
                 {
@@ -125,6 +135,9 @@ namespace Onllama.MondrianGateway
                         OllamaApi = new OllamaApiClient(new Uri(ActionApiUrl));
                     }
                 }
+
+                RedisConnection = ConnectionMultiplexer.Connect(RedisDBStr);
+                RedisDatabase = RedisConnection.GetDatabase();
 
                 var host = new WebHostBuilder()
                     .UseKestrel()
@@ -217,6 +230,7 @@ namespace Onllama.MondrianGateway
                     {
                         var body = await new StreamReader(context.Request.Body).ReadToEndAsync();
                         var jBody = JObject.Parse(body);
+                        RedisDatabase.JSON().Set(Ulid.NewUlid().ToGuid().ToString(), "$", body);
 
                         if (jBody.ContainsKey("model") && UseModelReplace &&
                             ModelReplaceDictionary.TryGetValue(jBody["model"]?.ToString()!, out var newModel))
@@ -313,6 +327,8 @@ namespace Onllama.MondrianGateway
                         ReplaceTokensList.Add(ReplaceTokensList.First());
                         ReplaceTokensList.RemoveAt(0);
                     }
+
+                    Console.WriteLine(await response.Content.ReadAsStringAsync());
 
                     return response;
                 }
