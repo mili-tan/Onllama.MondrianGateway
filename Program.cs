@@ -1,4 +1,5 @@
 ﻿using System.Net;
+using System.Net.Http;
 using System.Text;
 using System.Text.Json.Serialization;
 using Force.DeepCloner;
@@ -35,9 +36,9 @@ namespace Onllama.MondrianGateway
         public static bool UseSystemPromptTrim = false;
         public static bool UseSystemPromptInject = false;
 
-        public static string RedisDBStr = "";
-        public static ConnectionMultiplexer RedisConnection;
-        public static IDatabase RedisDatabase;
+        //public static string RedisDBStr = "";
+        //public static ConnectionMultiplexer RedisConnection;
+        //public static IDatabase RedisDatabase;
 
 
         public static string ReplaceTokenMode = "failback";
@@ -136,8 +137,8 @@ namespace Onllama.MondrianGateway
                     }
                 }
 
-                RedisConnection = ConnectionMultiplexer.Connect(RedisDBStr);
-                RedisDatabase = RedisConnection.GetDatabase();
+                //RedisConnection = ConnectionMultiplexer.Connect(RedisDBStr);
+                //RedisDatabase = RedisConnection.GetDatabase();
 
                 var host = new WebHostBuilder()
                     .UseKestrel()
@@ -207,7 +208,79 @@ namespace Onllama.MondrianGateway
                                 });
                             });
 
-                        app.Map("/v1", HandleOpenaiStyleChat);
+                        app.UseRouting().UseEndpoints(endpoint =>
+                        {
+                            endpoint.Map("/v1/chat/completions", async context =>
+                            {
+                                // 配置响应头
+                                context.Response.ContentType = "text/plain; charset=utf-8";
+                                context.Response.Headers.CacheControl = "no-cache";
+                                context.Response.Headers.Connection = "keep-alive";
+
+                                using var httpClient = new HttpClient();
+                                var apiUrl = "https://api.siliconflow.cn/v1/chat/completions"; // 替换实际API地址
+                                var apiKey = "sk-";
+
+                                var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
+                                request.Headers.Add("Authorization", $"Bearer {apiKey}");
+                                request.Content = new StringContent(@"{
+            ""model"": ""deepseek-ai/DeepSeek-R1-Distill-Llama-8B"",
+            ""messages"": [{""role"": ""user"", ""content"": ""你好啊，你是谁啊""}],
+            ""stream"": true
+        }", Encoding.UTF8, "application/json");
+
+                                // 关键：使用 ResponseHeadersRead 模式立即获取流
+                                var response = await httpClient.SendAsync(request,
+                                    HttpCompletionOption.ResponseHeadersRead);
+                                response.EnsureSuccessStatusCode();
+
+                                // 获取响应流
+                                using var stream = await response.Content.ReadAsStreamAsync();
+                                using var reader = new StreamReader(stream);
+
+                                // 流式读取
+                                var buffer = new char[1024];
+                                var sb = new StringBuilder();
+                                while (true)
+                                {
+                                    var bytesRead = await reader.ReadAsync(buffer, 0, buffer.Length);
+                                    if (bytesRead == 0) break;
+
+                                    sb.Append(buffer, 0, bytesRead);
+
+                                    // 处理完整行
+                                    while (sb.Length > 0)
+                                    {
+                                        var newLineIndex = sb.ToString().IndexOf('\n');
+                                        if (newLineIndex < 0) break;
+
+                                        var line = sb.ToString(0, newLineIndex).Trim();
+                                        sb.Remove(0, newLineIndex + 1);
+
+                                        Console.WriteLine(line);
+
+                                        //if (!string.IsNullOrEmpty(line))
+                                        //{
+
+                                        //    if (line.StartsWith("data: "))
+                                        //    {
+                                        //        var jsonData = line.Substring(6);
+                                        //        if (jsonData == "[DONE]") return;
+
+                                        //        Console.WriteLine($"Received: {jsonData}");
+                                        //        // 这里添加JSON解析逻辑
+                                        //    }
+                                        //}
+
+                                        await context.Response.WriteAsync(line + Environment.NewLine);
+                                        await context.Response.Body.FlushAsync();
+                                    }
+                                }
+                                await context.Response.CompleteAsync();
+                            });
+
+                        });
+                        //app.Map("/v1", HandleOpenaiStyleChat);
 
                     }).Build();
 
@@ -230,7 +303,7 @@ namespace Onllama.MondrianGateway
                     {
                         var body = await new StreamReader(context.Request.Body).ReadToEndAsync();
                         var jBody = JObject.Parse(body);
-                        RedisDatabase.JSON().Set(Ulid.NewUlid().ToGuid().ToString(), "$", body);
+                        //RedisDatabase.JSON().Set(Ulid.NewUlid().ToGuid().ToString(), "$", body);
 
                         if (jBody.ContainsKey("model") && UseModelReplace &&
                             ModelReplaceDictionary.TryGetValue(jBody["model"]?.ToString()!, out var newModel))
