@@ -221,13 +221,15 @@ namespace Onllama.MondrianGateway
                                 var apiUrl = "https://api.siliconflow.cn/v1/chat/completions"; // 替换实际API地址
                                 var apiKey = "sk-";
 
+                                var body = await new StreamReader(context.Request.Body).ReadToEndAsync();
+                                var jBody = JObject.Parse(body);
+                                jBody["model"] = "Qwen/Qwen2.5-7B-Instruct";
+
                                 var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
                                 request.Headers.Add("Authorization", $"Bearer {apiKey}");
-                                request.Content = new StringContent(@"{
-            ""model"": ""deepseek-ai/DeepSeek-R1-Distill-Llama-8B"",
-            ""messages"": [{""role"": ""user"", ""content"": ""你好啊，你是谁啊""}],
-            ""stream"": true
-        }", Encoding.UTF8, "application/json");
+                                request.Content =
+                                    new StringContent(jBody.ToString(),
+                                        Encoding.UTF8, "application/json");
 
                                 // 关键：使用 ResponseHeadersRead 模式立即获取流
                                 var response = await httpClient.SendAsync(request,
