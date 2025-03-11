@@ -224,6 +224,7 @@ namespace Onllama.MondrianGateway
                                 if (jBody.ContainsKey("messages"))
                                 {
                                     var msgs = jBody["messages"]?.ToObject<List<Message>>();
+
                                     if (msgs.Any())
                                     {
                                         var fnv = FNV1a.Create();
@@ -235,7 +236,9 @@ namespace Onllama.MondrianGateway
                                                 .TrimEnd('='));
                                         }
 
-                                        Console.WriteLine(string.Join(',', HashsDictionary.Keys.LastOrDefault(x => x.IsSubsetOf(hashs)) ?? ["NF"]));
+                                        Console.WriteLine(string.Join(',',
+                                            HashsDictionary.Keys.LastOrDefault(x =>
+                                                x.Count <= hashs.Count && x.IsSubsetOf(hashs)) ?? ["NF"]));
 
                                         HashsDictionary.Add(hashs, msgs);
                                     }
