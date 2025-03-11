@@ -1,22 +1,16 @@
 ﻿using System.Net;
-using System.Net.Http;
 using System.Text;
 using System.Text.Json.Serialization;
-using Force.DeepCloner;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using NetTopologySuite.IO;
 using Newtonsoft.Json.Linq;
-using NRedisStack.RedisStackCommands;
 using OllamaSharp;
 using OllamaSharp.Models.Chat;
-using Org.BouncyCastle.Utilities;
 using ProxyKit;
-using StackExchange.Redis;
 
 
 namespace Onllama.MondrianGateway
