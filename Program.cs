@@ -1,4 +1,5 @@
 ﻿using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Builder;
@@ -52,6 +53,7 @@ namespace Onllama.MondrianGateway
 
         public static OllamaApiClient OllamaApi = new OllamaApiClient(new Uri(ActionApiUrl));
 
+        public static Dictionary<HashSet<string>, List<Message>> HashsDictionary = new();
 
         static void Main(string[] args)
         {
@@ -218,6 +220,26 @@ namespace Onllama.MondrianGateway
                                 var body = await new StreamReader(context.Request.Body).ReadToEndAsync();
                                 var jBody = JObject.Parse(body);
                                 jBody["model"] = "Qwen/Qwen2.5-7B-Instruct";
+
+                                if (jBody.ContainsKey("messages"))
+                                {
+                                    var msgs = jBody["messages"]?.ToObject<List<Message>>();
+                                    if (msgs.Any())
+                                    {
+                                        var fnv = FNV1a.Create();
+                                        var hashs = new HashSet<string>();
+                                        foreach (var item in msgs)
+                                        {
+                                            hashs.Add(Convert
+                                                .ToBase64String(fnv.ComputeHash(Encoding.UTF8.GetBytes(item.Content)))
+                                                .TrimEnd('='));
+                                        }
+
+                                        Console.WriteLine(string.Join(',', HashsDictionary.Keys.LastOrDefault(x => x.IsSubsetOf(hashs)) ?? ["NF"]));
+
+                                        HashsDictionary.Add(hashs, msgs);
+                                    }
+                                }
 
                                 var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
                                 request.Headers.Add("Authorization", $"Bearer {apiKey}");
