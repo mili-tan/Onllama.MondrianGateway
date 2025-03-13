@@ -221,6 +221,8 @@ namespace Onllama.MondrianGateway
                                 var jBody = JObject.Parse(body);
                                 jBody["model"] = "Qwen/Qwen2.5-7B-Instruct";
 
+                                //RedisDatabase.JSON().Set(Ulid.NewUlid().ToGuid().ToString(), "$", body);
+
                                 if (jBody.ContainsKey("messages"))
                                 {
                                     var msgs = jBody["messages"]?.ToObject<List<Message>>();
