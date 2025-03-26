@@ -10,9 +10,11 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json.Linq;
+using NRedisStack.RedisStackCommands;
 using OllamaSharp;
 using OllamaSharp.Models.Chat;
 using ProxyKit;
+using StackExchange.Redis;
 
 namespace Onllama.MondrianGateway
 {
@@ -31,10 +33,9 @@ namespace Onllama.MondrianGateway
         public static bool UseSystemPromptTrim = false;
         public static bool UseSystemPromptInject = false;
 
-        //public static string RedisDBStr = "";
-        //public static ConnectionMultiplexer RedisConnection;
-        //public static IDatabase RedisDatabase;
-
+        public static string RedisDBStr = "";
+        public static ConnectionMultiplexer RedisConnection;
+        public static IDatabase RedisDatabase;
 
         public static string ReplaceTokenMode = "failback";
         public static List<string> ReplaceTokensList = ["sk-test"];
@@ -55,7 +56,7 @@ namespace Onllama.MondrianGateway
 
         public static Dictionary<HashSet<string>, List<Message>> HashsDictionary = new();
 
-        public static FastCache<Guid, string> MsgSet = new FastCache<Guid, string>();
+        public static FastCache<Guid, string> MsgSets = new FastCache<Guid, string>();
 
         static void Main(string[] args)
         {
@@ -223,7 +224,6 @@ namespace Onllama.MondrianGateway
                                 var jBody = JObject.Parse(body);
                                 jBody["model"] = "Qwen/Qwen2.5-7B-Instruct";
 
-                                //RedisDatabase.JSON().Set(Ulid.NewUlid().ToGuid().ToString(), "$", body);
 
                                 if (jBody.ContainsKey("messages"))
                                 {
@@ -243,25 +243,22 @@ namespace Onllama.MondrianGateway
                                         }
 
                                         var hashStr = string.Join(',', hashs.ToList());
-                                        //Console.WriteLine(hashStr);
+                                        RedisDatabase.JSON().Set("MSG-HASH:" + hashStr, "$", body);
 
-                                        if (MsgSet.Any(x => hashStr.StartsWith(x.Value)))
-                                        {
-                                            var msgId = MsgSet.FirstOrDefault(x => hashStr.StartsWith(x.Value)).Key;
-                                            Console.WriteLine("FIND!" + msgId);
-                                            MsgSet.AddOrUpdate(msgId, hashStr, TimeSpan.FromSeconds(30));
-                                        }
-                                        else
-                                        {
-                                            Console.WriteLine("NewMsg!");
-                                            MsgSet.AddOrUpdate(Guid.NewGuid(), hashStr, TimeSpan.FromSeconds(30));
-                                        }
+                                        var msgSetId = Ulid.NewUlid().ToGuid();
+                                        if (MsgSets.Any(x => hashStr.StartsWith(x.Value)))
+                                            msgSetId = MsgSets.FirstOrDefault(x => hashStr.StartsWith(x.Value)).Key;
+                                        RedisDatabase.JSON().Set("MSG-SET:" + msgSetId, "$", body);
 
                                         Console.WriteLine(string.Join(',',
                                             HashsDictionary.Keys.LastOrDefault(x =>
                                                 x.Count <= hashs.Count && x.IsSubsetOf(hashs)) ?? ["NF"]));
 
                                         HashsDictionary.Add(hashs, msgs);
+                                    }
+                                    else
+                                    {
+                                        RedisDatabase.JSON().Set("MSG:" + Ulid.NewUlid().ToGuid(), "$", body);
                                     }
                                 }
 
