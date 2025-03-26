@@ -2,6 +2,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Serialization;
+using Jitbit.Utils;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -12,7 +13,6 @@ using Newtonsoft.Json.Linq;
 using OllamaSharp;
 using OllamaSharp.Models.Chat;
 using ProxyKit;
-
 
 namespace Onllama.MondrianGateway
 {
@@ -54,6 +54,8 @@ namespace Onllama.MondrianGateway
         public static OllamaApiClient OllamaApi = new OllamaApiClient(new Uri(ActionApiUrl));
 
         public static Dictionary<HashSet<string>, List<Message>> HashsDictionary = new();
+
+        public static FastCache<Guid, string> MsgSet = new FastCache<Guid, string>();
 
         static void Main(string[] args)
         {
@@ -227,6 +229,8 @@ namespace Onllama.MondrianGateway
                                 {
                                     var msgs = jBody["messages"]?.ToObject<List<Message>>();
 
+                                    Console.WriteLine(jBody["messages"].ToString());
+
                                     if (msgs.Any())
                                     {
                                         var fnv = FNV1a.Create();
@@ -236,6 +240,21 @@ namespace Onllama.MondrianGateway
                                             hashs.Add(Convert
                                                 .ToBase64String(fnv.ComputeHash(Encoding.UTF8.GetBytes(item.Content)))
                                                 .TrimEnd('='));
+                                        }
+
+                                        var hashStr = string.Join(',', hashs.ToList());
+                                        //Console.WriteLine(hashStr);
+
+                                        if (MsgSet.Any(x => hashStr.StartsWith(x.Value)))
+                                        {
+                                            var msgId = MsgSet.FirstOrDefault(x => hashStr.StartsWith(x.Value)).Key;
+                                            Console.WriteLine("FIND!" + msgId);
+                                            MsgSet.AddOrUpdate(msgId, hashStr, TimeSpan.FromSeconds(30));
+                                        }
+                                        else
+                                        {
+                                            Console.WriteLine("NewMsg!");
+                                            MsgSet.AddOrUpdate(Guid.NewGuid(), hashStr, TimeSpan.FromSeconds(30));
                                         }
 
                                         Console.WriteLine(string.Join(',',
