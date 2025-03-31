@@ -249,6 +249,7 @@ namespace Onllama.MondrianGateway
                                         if (MsgSets.Any(x => hashStr.StartsWith(x.Value)))
                                             msgSetId = MsgSets.FirstOrDefault(x => hashStr.StartsWith(x.Value)).Key;
                                         RedisDatabase.JSON().Set("MSG-SET:" + msgSetId, "$", body);
+                                        MsgSets.AddOrUpdate(msgSetId, hashStr, TimeSpan.FromMinutes(15));
 
                                         Console.WriteLine(string.Join(',',
                                             HashsDictionary.Keys.LastOrDefault(x =>
