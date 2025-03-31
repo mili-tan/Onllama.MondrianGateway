@@ -33,7 +33,7 @@ namespace Onllama.MondrianGateway
         public static bool UseSystemPromptTrim = false;
         public static bool UseSystemPromptInject = false;
 
-        public static string RedisDBStr = "";
+        public static string RedisDBStr = File.ReadAllText("redis.text").Trim();
         public static ConnectionMultiplexer RedisConnection;
         public static IDatabase RedisDatabase;
 
@@ -136,8 +136,8 @@ namespace Onllama.MondrianGateway
                     }
                 }
 
-                //RedisConnection = ConnectionMultiplexer.Connect(RedisDBStr);
-                //RedisDatabase = RedisConnection.GetDatabase();
+                RedisConnection = ConnectionMultiplexer.Connect(RedisDBStr);
+                RedisDatabase = RedisConnection.GetDatabase();
 
                 var host = new WebHostBuilder()
                     .UseKestrel()
@@ -218,7 +218,7 @@ namespace Onllama.MondrianGateway
 
                                 using var httpClient = new HttpClient();
                                 var apiUrl = "https://api.siliconflow.cn/v1/chat/completions"; // 替换实际API地址
-                                var apiKey = "sk-";
+                                var apiKey = (await File.ReadAllTextAsync("sk.text")).Trim();
 
                                 var body = await new StreamReader(context.Request.Body).ReadToEndAsync();
                                 var jBody = JObject.Parse(body);
