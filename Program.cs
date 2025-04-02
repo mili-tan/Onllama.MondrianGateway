@@ -187,6 +187,27 @@ namespace Onllama.MondrianGateway
                             }
                         });
 
+                        app.Use(async (context, next) =>
+                        {
+                            if (UseTokenReplace)
+                            {
+                                context.Request.Headers.Remove("Authorization");
+                                if (ReplaceTokenMode is "first" or "failback")
+                                {
+                                    context.Request.Headers.Authorization =
+                                        "Bearer " + ReplaceTokensList.FirstOrDefault();
+                                }
+                                else if (ReplaceTokenMode == "random")
+                                {
+                                    context.Request.Headers.Authorization =
+                                        "Bearer " + ReplaceTokensList.ToArray()[
+                                            new Random().Next(ReplaceTokensList.Count - 1)];
+                                }
+                            }
+
+                            await next.Invoke();
+                        });
+
                         foreach (var path in NonChatApiPathList)
                             app.Map(path, svr =>
                             {
@@ -211,116 +232,130 @@ namespace Onllama.MondrianGateway
                         {
                             endpoint.Map("/v1/chat/completions", async context =>
                             {
-                                // 配置响应头
-                                context.Response.ContentType = "text/plain; charset=utf-8";
-                                context.Response.Headers.CacheControl = "no-cache";
-                                context.Response.Headers.Connection = "keep-alive";
-
-                                using var httpClient = new HttpClient();
-                                var apiUrl = "https://api.siliconflow.cn/v1/chat/completions"; // 替换实际API地址
-                                var apiKey = (await File.ReadAllTextAsync("sk.text")).Trim();
-
                                 var body = await new StreamReader(context.Request.Body).ReadToEndAsync();
                                 var jBody = JObject.Parse(body);
-                                jBody["model"] = "Qwen/Qwen2.5-7B-Instruct";
+                                var isStream = jBody.ContainsKey("stream") && jBody["stream"]!.ToObject<bool>();
 
-
-                                if (jBody.ContainsKey("messages"))
+                                if (isStream)
                                 {
-                                    var msgs = jBody["messages"]?.ToObject<List<Message>>();
+                                    // 配置响应头
+                                    context.Response.ContentType = "text/plain; charset=utf-8";
+                                    context.Response.Headers.CacheControl = "no-cache";
+                                    context.Response.Headers.Connection = "keep-alive";
 
-                                    Console.WriteLine(jBody["messages"].ToString());
+                                    using var httpClient = new HttpClient();
+                                    var apiUrl = "https://api.siliconflow.cn/v1/chat/completions"; // 替换实际API地址
+                                    var apiKey = (await File.ReadAllTextAsync("sk.text")).Trim();
 
-                                    if (msgs.Any())
+                                    jBody["model"] = "Qwen/Qwen2.5-7B-Instruct";
+
+
+                                    if (jBody.ContainsKey("messages"))
                                     {
-                                        var fnv = FNV1a.Create();
-                                        var hashs = new HashSet<string>();
-                                        foreach (var item in msgs)
+                                        var msgs = jBody["messages"]?.ToObject<List<Message>>();
+
+                                        Console.WriteLine(jBody["messages"].ToString());
+
+                                        if (msgs.Any())
                                         {
-                                            hashs.Add(Convert
-                                                .ToBase64String(fnv.ComputeHash(Encoding.UTF8.GetBytes(item.Content)))
-                                                .TrimEnd('='));
+                                            var fnv = FNV1a.Create();
+                                            var hashs = new HashSet<string>();
+                                            foreach (var item in msgs)
+                                            {
+                                                hashs.Add(Convert
+                                                    .ToBase64String(
+                                                        fnv.ComputeHash(Encoding.UTF8.GetBytes(item.Content)))
+                                                    .TrimEnd('='));
+                                            }
+
+                                            var hashStr = string.Join(',', hashs.ToList());
+                                            RedisDatabase.JSON().Set("MSG-HASH:" + hashStr, "$", body);
+
+                                            var msgSetId = Ulid.NewUlid().ToGuid();
+                                            if (MsgSets.Any(x => hashStr.StartsWith(x.Value)))
+                                                msgSetId = MsgSets.FirstOrDefault(x => hashStr.StartsWith(x.Value)).Key;
+                                            RedisDatabase.JSON().Set("MSG-SET:" + msgSetId, "$", body);
+                                            MsgSets.AddOrUpdate(msgSetId, hashStr, TimeSpan.FromMinutes(15));
+
+                                            Console.WriteLine(string.Join(',',
+                                                HashsDictionary.Keys.LastOrDefault(x =>
+                                                    x.Count <= hashs.Count && x.IsSubsetOf(hashs)) ?? ["NF"]));
+
+                                            HashsDictionary.Add(hashs, msgs);
                                         }
-
-                                        var hashStr = string.Join(',', hashs.ToList());
-                                        RedisDatabase.JSON().Set("MSG-HASH:" + hashStr, "$", body);
-
-                                        var msgSetId = Ulid.NewUlid().ToGuid();
-                                        if (MsgSets.Any(x => hashStr.StartsWith(x.Value)))
-                                            msgSetId = MsgSets.FirstOrDefault(x => hashStr.StartsWith(x.Value)).Key;
-                                        RedisDatabase.JSON().Set("MSG-SET:" + msgSetId, "$", body);
-                                        MsgSets.AddOrUpdate(msgSetId, hashStr, TimeSpan.FromMinutes(15));
-
-                                        Console.WriteLine(string.Join(',',
-                                            HashsDictionary.Keys.LastOrDefault(x =>
-                                                x.Count <= hashs.Count && x.IsSubsetOf(hashs)) ?? ["NF"]));
-
-                                        HashsDictionary.Add(hashs, msgs);
+                                        else
+                                        {
+                                            RedisDatabase.JSON().Set("MSG:" + Ulid.NewUlid().ToGuid(), "$", body);
+                                        }
                                     }
-                                    else
+
+                                    var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
+                                    request.Headers.Add("Authorization", $"Bearer {apiKey}");
+                                    request.Content =
+                                        new StringContent(jBody.ToString(),
+                                            Encoding.UTF8, "application/json");
+
+                                    // 关键：使用 ResponseHeadersRead 模式立即获取流
+                                    var response = await httpClient.SendAsync(request,
+                                        HttpCompletionOption.ResponseHeadersRead);
+                                    response.EnsureSuccessStatusCode();
+
+                                    // 获取响应流
+                                    using var stream = await response.Content.ReadAsStreamAsync();
+                                    using var reader = new StreamReader(stream);
+
+                                    // 流式读取
+                                    var buffer = new char[1024];
+                                    var sb = new StringBuilder();
+                                    while (true)
                                     {
-                                        RedisDatabase.JSON().Set("MSG:" + Ulid.NewUlid().ToGuid(), "$", body);
+                                        var bytesRead = await reader.ReadAsync(buffer, 0, buffer.Length);
+                                        if (bytesRead == 0) break;
+
+                                        sb.Append(buffer, 0, bytesRead);
+
+                                        // 处理完整行
+                                        while (sb.Length > 0)
+                                        {
+                                            var newLineIndex = sb.ToString().IndexOf('\n');
+                                            if (newLineIndex < 0) break;
+
+                                            var line = sb.ToString(0, newLineIndex).Trim();
+                                            sb.Remove(0, newLineIndex + 1);
+
+                                            Console.WriteLine(line);
+
+                                            //if (!string.IsNullOrEmpty(line))
+                                            //{
+
+                                            //    if (line.StartsWith("data: "))
+                                            //    {
+                                            //        var jsonData = line.Substring(6);
+                                            //        if (jsonData == "[DONE]") return;
+
+                                            //        Console.WriteLine($"Received: {jsonData}");
+                                            //        // 这里添加JSON解析逻辑
+                                            //    }
+                                            //}
+
+                                            await context.Response.WriteAsync(line + Environment.NewLine);
+                                            await context.Response.Body.FlushAsync();
+                                        }
                                     }
+
+                                    await context.Response.CompleteAsync();
                                 }
-
-                                var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
-                                request.Headers.Add("Authorization", $"Bearer {apiKey}");
-                                request.Content =
-                                    new StringContent(jBody.ToString(),
-                                        Encoding.UTF8, "application/json");
-
-                                // 关键：使用 ResponseHeadersRead 模式立即获取流
-                                var response = await httpClient.SendAsync(request,
-                                    HttpCompletionOption.ResponseHeadersRead);
-                                response.EnsureSuccessStatusCode();
-
-                                // 获取响应流
-                                using var stream = await response.Content.ReadAsStreamAsync();
-                                using var reader = new StreamReader(stream);
-
-                                // 流式读取
-                                var buffer = new char[1024];
-                                var sb = new StringBuilder();
-                                while (true)
+                                else
                                 {
-                                    var bytesRead = await reader.ReadAsync(buffer, 0, buffer.Length);
-                                    if (bytesRead == 0) break;
-
-                                    sb.Append(buffer, 0, bytesRead);
-
-                                    // 处理完整行
-                                    while (sb.Length > 0)
-                                    {
-                                        var newLineIndex = sb.ToString().IndexOf('\n');
-                                        if (newLineIndex < 0) break;
-
-                                        var line = sb.ToString(0, newLineIndex).Trim();
-                                        sb.Remove(0, newLineIndex + 1);
-
-                                        Console.WriteLine(line);
-
-                                        //if (!string.IsNullOrEmpty(line))
-                                        //{
-
-                                        //    if (line.StartsWith("data: "))
-                                        //    {
-                                        //        var jsonData = line.Substring(6);
-                                        //        if (jsonData == "[DONE]") return;
-
-                                        //        Console.WriteLine($"Received: {jsonData}");
-                                        //        // 这里添加JSON解析逻辑
-                                        //    }
-                                        //}
-
-                                        await context.Response.WriteAsync(line + Environment.NewLine);
-                                        await context.Response.Body.FlushAsync();
-                                    }
+                                    var response = await context
+                                        .ForwardTo(new Uri(TargetApiUrl + "/v1/chat/completions")).Send();
+                                    response.Headers.Add("X-Forwarder-By", "MondrianGateway/0.1");
+                                    await context.Response.WriteAsync(await response.Content.ReadAsStringAsync());
                                 }
-                                await context.Response.CompleteAsync();
                             });
 
                         });
-                        //app.Map("/v1", HandleOpenaiStyleChat);
+                        app.Map("/v1", HandleOpenaiStyleChat);
 
                     }).Build();
 
@@ -351,21 +386,7 @@ namespace Onllama.MondrianGateway
 
                         Console.WriteLine(jBody.ToString());
 
-                        if (UseTokenReplace)
-                        {
-                            context.Request.Headers.Remove("Authorization");
-                            if (ReplaceTokenMode is "first" or "failback")
-                            {
-                                context.Request.Headers.Authorization =
-                                    "Bearer " + ReplaceTokensList.FirstOrDefault();
-                            }
-                            else if (ReplaceTokenMode == "random")
-                            {
-                                context.Request.Headers.Authorization =
-                                    "Bearer " + ReplaceTokensList.ToArray()[
-                                        new Random().Next(ReplaceTokensList.Count - 1)];
-                            }
-                        }
+
 
                         if (jBody.ContainsKey("messages"))
                         {
