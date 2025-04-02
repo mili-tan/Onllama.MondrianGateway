@@ -236,27 +236,12 @@ namespace Onllama.MondrianGateway
                                 var jBody = JObject.Parse(body);
                                 var isStream = jBody.ContainsKey("stream") && jBody["stream"]!.ToObject<bool>();
 
-                                if (isStream)
+                                if (jBody.ContainsKey("messages"))
                                 {
-                                    // 配置响应头
-                                    context.Response.ContentType = "text/plain; charset=utf-8";
-                                    context.Response.Headers.CacheControl = "no-cache";
-                                    context.Response.Headers.Connection = "keep-alive";
-
-                                    using var httpClient = new HttpClient();
-                                    var apiUrl = "https://api.siliconflow.cn/v1/chat/completions"; // 替换实际API地址
-                                    var apiKey = (await File.ReadAllTextAsync("sk.text")).Trim();
-
-                                    jBody["model"] = "Qwen/Qwen2.5-7B-Instruct";
-
-
-                                    if (jBody.ContainsKey("messages"))
+                                    var msgs = jBody["messages"]?.ToObject<List<Message>>();
+                                    if (msgs != null && msgs.Any())
                                     {
-                                        var msgs = jBody["messages"]?.ToObject<List<Message>>();
-
-                                        Console.WriteLine(jBody["messages"].ToString());
-
-                                        if (msgs.Any())
+                                        if (true)
                                         {
                                             var fnv = FNV1a.Create();
                                             var hashs = new HashSet<string>();
@@ -283,11 +268,77 @@ namespace Onllama.MondrianGateway
 
                                             HashsDictionary.Add(hashs, msgs);
                                         }
-                                        else
+
+                                        if (UseSystemPromptTrim)
                                         {
-                                            RedisDatabase.JSON().Set("MSG:" + Ulid.NewUlid().ToGuid(), "$", body);
+                                            msgs.RemoveAll(x => string.Equals(x.Role, ChatRole.System.ToString(),
+                                                StringComparison.CurrentCultureIgnoreCase));
+                                            jBody["messages"] = JArray.FromObject(msgs);
+                                        }
+
+                                        if (UseSystemPromptInject && !string.IsNullOrWhiteSpace(SystemPrompt))
+                                        {
+                                            msgs.Insert(0, new Message { Role = ChatRole.System.ToString(), Content = SystemPrompt });
+                                            jBody["messages"] = JArray.FromObject(msgs);
+                                            Console.WriteLine(jBody.ToString());
+                                        }
+
+                                        if (UseRiskModel)
+                                        {
+                                            await foreach (var res in OllamaApi.ChatAsync(new ChatRequest()
+                                            {
+                                                Model = RiskModel,
+                                                Messages = msgs.Select(x =>
+                                                    new OllamaSharp.Models.Chat.Message(x.Role, x.Content)),
+                                                Stream = false
+                                            }))
+                                            {
+                                                var risks = res?.Message.Content;
+                                                Console.WriteLine(risks);
+                                                if (risks != null &&
+                                                    RiskKeywordsList.Any(x => risks.ToUpper().Contains(x.ToUpper())))
+                                                {
+                                                    context.Response.WriteAsync(new JObject
+                                                    {
+                                                        {
+                                                            "error",
+                                                            new JObject
+                                                            {
+                                                                {
+                                                                    "message",
+                                                                    "Messages with content security risks. Unable to continue."
+                                                                },
+                                                                {"type", "content_risks"}, {"risk_model", res?.Model},
+                                                                {"risk_raw_msg", res?.Message.Content}
+                                                            }
+                                                        }
+                                                    }.ToString());
+                                                }
+                                            }
+
                                         }
                                     }
+                                    else
+                                    {
+                                        RedisDatabase.JSON().Set("MSG:" + Ulid.NewUlid().ToGuid(), "$", body);
+                                    }
+                                }
+
+                                context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(jBody.ToString()));
+                                context.Request.ContentLength = context.Request.Body.Length;
+
+                                if (isStream)
+                                {
+                                    // 配置响应头
+                                    context.Response.ContentType = "text/plain; charset=utf-8";
+                                    context.Response.Headers.CacheControl = "no-cache";
+                                    context.Response.Headers.Connection = "keep-alive";
+
+                                    using var httpClient = new HttpClient();
+                                    var apiUrl = "https://api.siliconflow.cn/v1/chat/completions"; // 替换实际API地址
+                                    var apiKey = (await File.ReadAllTextAsync("sk.text")).Trim();
+
+                                    jBody["model"] = "Qwen/Qwen2.5-7B-Instruct";
 
                                     var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
                                     request.Headers.Add("Authorization", $"Bearer {apiKey}");
@@ -341,6 +392,14 @@ namespace Onllama.MondrianGateway
                                             await context.Response.WriteAsync(line + Environment.NewLine);
                                             await context.Response.Body.FlushAsync();
                                         }
+
+                                        var statusCode = Convert.ToInt32(response.StatusCode);
+                                        if (UseTokenReplace && ReplaceTokenMode == "failback" && ReplaceTokensList.Any() &&
+                                            statusCode is >= 400 and < 500)
+                                        {
+                                            ReplaceTokensList.Add(ReplaceTokensList.First());
+                                            ReplaceTokensList.RemoveAt(0);
+                                        }
                                     }
 
                                     await context.Response.CompleteAsync();
@@ -351,6 +410,14 @@ namespace Onllama.MondrianGateway
                                         .ForwardTo(new Uri(TargetApiUrl + "/v1/chat/completions")).Send();
                                     response.Headers.Add("X-Forwarder-By", "MondrianGateway/0.1");
                                     await context.Response.WriteAsync(await response.Content.ReadAsStringAsync());
+
+                                    var statusCode = Convert.ToInt32(response.StatusCode);
+                                    if (UseTokenReplace && ReplaceTokenMode == "failback" && ReplaceTokensList.Any() &&
+                                        statusCode is >= 400 and < 500)
+                                    {
+                                        ReplaceTokensList.Add(ReplaceTokensList.First());
+                                        ReplaceTokensList.RemoveAt(0);
+                                    }
                                 }
                             });
 
@@ -386,81 +453,11 @@ namespace Onllama.MondrianGateway
 
                         Console.WriteLine(jBody.ToString());
 
-
-
-                        if (jBody.ContainsKey("messages"))
-                        {
-                            var msgs = jBody["messages"]?.ToObject<List<Message>>();
-                            if (msgs != null && msgs.Any())
-                            {
-                                if (UseSystemPromptTrim)
-                                {
-                                    msgs.RemoveAll(x => string.Equals(x.Role, ChatRole.System.ToString(),
-                                        StringComparison.CurrentCultureIgnoreCase));
-                                    jBody["messages"] = JArray.FromObject(msgs);
-                                }
-
-                                if (UseSystemPromptInject && !string.IsNullOrWhiteSpace(SystemPrompt))
-                                {
-                                    msgs.Insert(0, new Message { Role = ChatRole.System.ToString(), Content = SystemPrompt });
-                                    jBody["messages"] = JArray.FromObject(msgs);
-                                    Console.WriteLine(jBody.ToString());
-                                }
-
-                                if (UseRiskModel)
-                                {
-                                    await foreach (var res in OllamaApi.ChatAsync(new ChatRequest()
-                                                   {
-                                                       Model = RiskModel,
-                                                       Messages = msgs.Select(x =>
-                                                           new OllamaSharp.Models.Chat.Message(x.Role, x.Content)),
-                                                       Stream = false
-                                                   }))
-                                    {
-                                        var risks = res?.Message.Content;
-                                        Console.WriteLine(risks);
-                                        if (risks != null &&
-                                            RiskKeywordsList.Any(x => risks.ToUpper().Contains(x.ToUpper())))
-                                        {
-                                            return new HttpResponseMessage(HttpStatusCode.UnavailableForLegalReasons)
-                                            {
-                                                Content = new StringContent(new JObject
-                                                {
-                                                    {
-                                                        "error",
-                                                        new JObject
-                                                        {
-                                                            {
-                                                                "message",
-                                                                "Messages with content security risks. Unable to continue."
-                                                            },
-                                                            {"type", "content_risks"}, {"risk_model", res?.Model},
-                                                            {"risk_raw_msg", res?.Message.Content}
-                                                        }
-                                                    }
-                                                }.ToString())
-                                            };
-                                        }
-                                    }
-
-                                }
-                            }
-                        }
-
-                        context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(jBody.ToString()));
-                        context.Request.ContentLength = context.Request.Body.Length;
                     }
 
                     response = await context.ForwardTo(new Uri(TargetApiUrl + "/v1")).Send();
                     response.Headers.Add("X-Forwarder-By", "MondrianGateway/0.1");
 
-                    var statusCode = Convert.ToInt32(response.StatusCode);
-                    if (UseTokenReplace && ReplaceTokenMode == "failback" && ReplaceTokensList.Any() &&
-                        statusCode is >= 400 and < 500)
-                    {
-                        ReplaceTokensList.Add(ReplaceTokensList.First());
-                        ReplaceTokensList.RemoveAt(0);
-                    }
 
                     Console.WriteLine(await response.Content.ReadAsStringAsync());
 
