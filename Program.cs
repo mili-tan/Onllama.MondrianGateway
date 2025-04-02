@@ -235,6 +235,12 @@ namespace Onllama.MondrianGateway
                                 var body = await new StreamReader(context.Request.Body).ReadToEndAsync();
                                 var jBody = JObject.Parse(body);
                                 var isStream = jBody.ContainsKey("stream") && jBody["stream"]!.ToObject<bool>();
+                                var sessionId = jBody.ContainsKey("session_id") ? jBody["session_id"]!.ToString() :
+                                    context.Request.Headers.Keys.Contains("session_id") ? context.Request.Headers["session_id"].ToString() : null;
+
+                                if (sessionId != null)
+                                    RedisDatabase.JSON().Set("Session:" + sessionId + ":" + Ulid.NewUlid().ToGuid(),
+                                        "$", body);
 
                                 if (jBody.ContainsKey("messages"))
                                 {
@@ -333,6 +339,7 @@ namespace Onllama.MondrianGateway
                                     context.Response.ContentType = "text/plain; charset=utf-8";
                                     context.Response.Headers.CacheControl = "no-cache";
                                     context.Response.Headers.Connection = "keep-alive";
+
 
                                     using var httpClient = new HttpClient();
                                     var apiUrl = "https://api.siliconflow.cn/v1/chat/completions"; // 替换实际API地址
