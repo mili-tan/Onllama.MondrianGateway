@@ -365,6 +365,7 @@ namespace Onllama.MondrianGateway
                                     // 流式读取
                                     var buffer = new char[1024];
                                     var sb = new StringBuilder();
+                                    var lines = new List<string>();
                                     while (true)
                                     {
                                         var bytesRead = await reader.ReadAsync(buffer, 0, buffer.Length);
@@ -381,6 +382,7 @@ namespace Onllama.MondrianGateway
                                             var line = sb.ToString(0, newLineIndex).Trim();
                                             sb.Remove(0, newLineIndex + 1);
 
+                                            lines.Add(line);
                                             Console.WriteLine(line);
 
                                             //if (!string.IsNullOrEmpty(line))
