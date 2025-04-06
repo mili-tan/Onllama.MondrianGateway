@@ -268,9 +268,9 @@ namespace Onllama.MondrianGateway
                                             RedisDatabase.JSON().Set("MSG-SET:" + msgSetId, "$", body);
                                             MsgSets.AddOrUpdate(msgSetId, hashStr, TimeSpan.FromMinutes(15));
 
-                                            Console.WriteLine(string.Join(',',
-                                                HashsDictionary.Keys.LastOrDefault(x =>
-                                                    x.Count <= hashs.Count && x.IsSubsetOf(hashs)) ?? ["NF"]));
+                                            //Console.WriteLine(string.Join(',',
+                                            //    HashsDictionary.Keys.LastOrDefault(x =>
+                                            //        x.Count <= hashs.Count && x.IsSubsetOf(hashs)) ?? ["NF"]));
 
                                             HashsDictionary.Add(hashs, msgs);
                                         }
@@ -335,80 +335,89 @@ namespace Onllama.MondrianGateway
 
                                 if (isStream)
                                 {
-                                    // 配置响应头
-                                    context.Response.ContentType = "text/plain; charset=utf-8";
-                                    context.Response.Headers.CacheControl = "no-cache";
-                                    context.Response.Headers.Connection = "keep-alive";
 
-
-                                    using var httpClient = new HttpClient();
-                                    var apiUrl = "https://api.siliconflow.cn/v1/chat/completions"; // 替换实际API地址
-                                    var apiKey = (await File.ReadAllTextAsync("sk.text")).Trim();
-
-                                    jBody["model"] = "Qwen/Qwen2.5-7B-Instruct";
-
-                                    var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
-                                    request.Headers.Add("Authorization", $"Bearer {apiKey}");
-                                    request.Content =
-                                        new StringContent(jBody.ToString(),
-                                            Encoding.UTF8, "application/json");
-
-                                    // 关键：使用 ResponseHeadersRead 模式立即获取流
-                                    var response = await httpClient.SendAsync(request,
-                                        HttpCompletionOption.ResponseHeadersRead);
-                                    response.EnsureSuccessStatusCode();
-
-                                    // 获取响应流
-                                    using var stream = await response.Content.ReadAsStreamAsync();
-                                    using var reader = new StreamReader(stream);
-
-                                    // 流式读取
-                                    var buffer = new char[1024];
-                                    var sb = new StringBuilder();
-                                    var lines = new List<string>();
-                                    while (true)
+                                    try
                                     {
-                                        var bytesRead = await reader.ReadAsync(buffer, 0, buffer.Length);
-                                        if (bytesRead == 0) break;
+                                        // 配置响应头
+                                        context.Response.ContentType = "text/plain; charset=utf-8";
+                                        context.Response.Headers.CacheControl = "no-cache";
+                                        context.Response.Headers.Connection = "keep-alive";
 
-                                        sb.Append(buffer, 0, bytesRead);
 
-                                        // 处理完整行
-                                        while (sb.Length > 0)
+                                        using var httpClient = new HttpClient();
+                                        var apiUrl = TargetApiUrl + "/v1/chat/completions";
+                                        var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
+
+                                        request.Headers.Clear();
+                                        foreach (var header in context.Request.Headers)
+                                            if (!header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase))
+                                                request.Headers.TryAddWithoutValidation(header.Key, header.Value.ToArray());
+
+                                        request.Content =
+                                            new StringContent(jBody.ToString(),
+                                                Encoding.UTF8, "application/json");
+
+                                        // 关键：使用 ResponseHeadersRead 模式立即获取流
+                                        var response = await httpClient.SendAsync(request,
+                                            HttpCompletionOption.ResponseHeadersRead);
+                                        response.EnsureSuccessStatusCode();
+
+                                        // 获取响应流
+                                        using var stream = await response.Content.ReadAsStreamAsync();
+                                        using var reader = new StreamReader(stream);
+
+                                        // 流式读取
+                                        var buffer = new char[1024];
+                                        var sb = new StringBuilder();
+                                        var lines = new List<string>();
+                                        while (true)
                                         {
-                                            var newLineIndex = sb.ToString().IndexOf('\n');
-                                            if (newLineIndex < 0) break;
+                                            var bytesRead = await reader.ReadAsync(buffer, 0, buffer.Length);
+                                            if (bytesRead == 0) break;
 
-                                            var line = sb.ToString(0, newLineIndex).Trim();
-                                            sb.Remove(0, newLineIndex + 1);
+                                            sb.Append(buffer, 0, bytesRead);
 
-                                            lines.Add(line);
-                                            Console.WriteLine(line);
+                                            // 处理完整行
+                                            while (sb.Length > 0)
+                                            {
+                                                var newLineIndex = sb.ToString().IndexOf('\n');
+                                                if (newLineIndex < 0) break;
 
-                                            //if (!string.IsNullOrEmpty(line))
-                                            //{
+                                                var line = sb.ToString(0, newLineIndex).Trim();
+                                                sb.Remove(0, newLineIndex + 1);
 
-                                            //    if (line.StartsWith("data: "))
-                                            //    {
-                                            //        var jsonData = line.Substring(6);
-                                            //        if (jsonData == "[DONE]") return;
+                                                lines.Add(line);
+                                                Console.WriteLine(line);
 
-                                            //        Console.WriteLine($"Received: {jsonData}");
-                                            //        // 这里添加JSON解析逻辑
-                                            //    }
-                                            //}
+                                                //if (!string.IsNullOrEmpty(line))
+                                                //{
 
-                                            await context.Response.WriteAsync(line + Environment.NewLine);
-                                            await context.Response.Body.FlushAsync();
+                                                //    if (line.StartsWith("data: "))
+                                                //    {
+                                                //        var jsonData = line.Substring(6);
+                                                //        if (jsonData == "[DONE]") return;
+
+                                                //        Console.WriteLine($"Received: {jsonData}");
+                                                //        // 这里添加JSON解析逻辑
+                                                //    }
+                                                //}
+
+                                                await context.Response.WriteAsync(line + Environment.NewLine);
+                                                await context.Response.Body.FlushAsync();
+                                            }
+
+                                            var statusCode = Convert.ToInt32(response.StatusCode);
+                                            if (UseTokenReplace && ReplaceTokenMode == "failback" && ReplaceTokensList.Any() &&
+                                                statusCode is >= 400 and < 500)
+                                            {
+                                                ReplaceTokensList.Add(ReplaceTokensList.First());
+                                                ReplaceTokensList.RemoveAt(0);
+                                            }
                                         }
-
-                                        var statusCode = Convert.ToInt32(response.StatusCode);
-                                        if (UseTokenReplace && ReplaceTokenMode == "failback" && ReplaceTokensList.Any() &&
-                                            statusCode is >= 400 and < 500)
-                                        {
-                                            ReplaceTokensList.Add(ReplaceTokensList.First());
-                                            ReplaceTokensList.RemoveAt(0);
-                                        }
+                                    }
+                                    catch (Exception e)
+                                    {
+                                        Console.WriteLine(e);
                                     }
 
                                     await context.Response.CompleteAsync();
