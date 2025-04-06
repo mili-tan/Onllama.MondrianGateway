@@ -235,12 +235,23 @@ namespace Onllama.MondrianGateway
                                 var body = await new StreamReader(context.Request.Body).ReadToEndAsync();
                                 var jBody = JObject.Parse(body);
                                 var isStream = jBody.ContainsKey("stream") && jBody["stream"]!.ToObject<bool>();
-                                var sessionId = jBody.ContainsKey("session_id") ? jBody["session_id"]!.ToString() :
-                                    context.Request.Headers.Keys.Contains("session_id") ? context.Request.Headers["session_id"].ToString() : null;
+                                var sessionId = jBody.TryGetValue("session_id", out var sessionFromBody) ? sessionFromBody.ToString() :
+                                    context.Request.Headers.TryGetValue("session_id", out var sessionFromHeader) ? sessionFromHeader.ToString() : null;
 
                                 if (sessionId != null)
+                                {
                                     RedisDatabase.JSON().Set("Session:" + sessionId + ":" + Ulid.NewUlid().ToGuid(),
                                         "$", body);
+                                    try
+                                    {
+                                        jBody.Remove("session_id");
+                                        context.Request.Headers.Remove("session_id");
+                                    }
+                                    catch (Exception e)
+                                    {
+                                        Console.WriteLine(e);
+                                    }
+                                }
 
                                 if (jBody.ContainsKey("messages"))
                                 {
