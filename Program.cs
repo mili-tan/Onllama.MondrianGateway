@@ -2,6 +2,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Serialization;
+using Force.DeepCloner;
 using Jitbit.Utils;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -269,14 +270,16 @@ namespace Onllama.MondrianGateway
                                                         fnv.ComputeHash(Encoding.UTF8.GetBytes(item.Content)))
                                                     .TrimEnd('='));
                                             }
-
                                             var hashStr = string.Join(',', hashs.ToList());
                                             RedisDatabase.JSON().Set("MSG-HASH:" + hashStr, "$", body);
 
                                             var msgSetId = Ulid.NewUlid().ToGuid();
                                             if (MsgSets.Any(x => hashStr.StartsWith(x.Value)))
                                                 msgSetId = MsgSets.FirstOrDefault(x => hashStr.StartsWith(x.Value)).Key;
-                                            RedisDatabase.JSON().Set("MSG-SET:" + msgSetId, "$", body);
+                                            
+                                            var setBody = jBody.DeepClone();
+                                            setBody["Hash"] = hashStr;
+                                            RedisDatabase.JSON().Set("MSG-SET:" + msgSetId, "$", setBody);
                                             MsgSets.AddOrUpdate(msgSetId, hashStr, TimeSpan.FromMinutes(15));
 
                                             //Console.WriteLine(string.Join(',',
