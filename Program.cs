@@ -2,7 +2,6 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Serialization;
-using Force.DeepCloner;
 using Jitbit.Utils;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -239,6 +238,10 @@ namespace Onllama.MondrianGateway
                                 var sessionId = jBody.TryGetValue("session_id", out var sessionFromBody) ? sessionFromBody.ToString() :
                                     context.Request.Headers.TryGetValue("session_id", out var sessionFromHeader) ? sessionFromHeader.ToString() : null;
 
+                                jBody["stream_options"] = new JObject() {["include_usage"] = true};
+
+                                Console.WriteLine(jBody);
+
                                 if (sessionId != null)
                                 {
                                     RedisDatabase.JSON().Set("Session:" + sessionId + ":" + Ulid.NewUlid().ToGuid(),
@@ -374,7 +377,15 @@ namespace Onllama.MondrianGateway
                                         // 关键：使用 ResponseHeadersRead 模式立即获取流
                                         var response = await httpClient.SendAsync(request,
                                             HttpCompletionOption.ResponseHeadersRead);
-                                        response.EnsureSuccessStatusCode();
+
+                                        if (!response.IsSuccessStatusCode)
+                                        {
+                                            context.Response.StatusCode = (int)response.StatusCode;
+                                            var msg = await response.Content.ReadAsStringAsync();  
+                                            await context.Response.WriteAsync(msg);
+                                           Console.WriteLine(msg);
+                                            return;
+                                        }
 
                                         // 获取响应流
                                         using var stream = await response.Content.ReadAsStreamAsync();
@@ -384,6 +395,13 @@ namespace Onllama.MondrianGateway
                                         var buffer = new char[1024];
                                         var sb = new StringBuilder();
                                         var lines = new List<string>();
+
+
+                                        long startTime = 0;
+                                        long endTime = 0;
+                                        var deltas = "";
+                                        var finishReason = "";
+
                                         while (true)
                                         {
                                             var bytesRead = await reader.ReadAsync(buffer, 0, buffer.Length);
@@ -403,18 +421,59 @@ namespace Onllama.MondrianGateway
                                                 lines.Add(line);
                                                 Console.WriteLine(line);
 
-                                                //if (!string.IsNullOrEmpty(line))
-                                                //{
+                                                if (!string.IsNullOrEmpty(line))
+                                                {
+                                                    if (line.StartsWith("data: "))
+                                                    {
+                                                        var jsonData = line.Substring(6);
+                                                        if (jsonData == "[DONE]")
+                                                        {
+                                                            Console.WriteLine("___________");
+                                                            Console.WriteLine(deltas);
+                                                            Console.WriteLine(endTime - startTime);
+                                                            Console.WriteLine(finishReason);
+                                                            return;
+                                                        }
+                                                        try
+                                                        {
+                                                            var json = JObject.Parse(jsonData);
+                                                            if (string.IsNullOrEmpty(deltas)) 
+                                                                startTime = json["created"]!.ToObject<long>();
 
-                                                //    if (line.StartsWith("data: "))
-                                                //    {
-                                                //        var jsonData = line.Substring(6);
-                                                //        if (jsonData == "[DONE]") return;
+                                                            if (json.ContainsKey("choices") && json["choices"]!.Any())
+                                                            {
+                                                                foreach (var choice in json["choices"]!)
+                                                                {
+                                                                    var delta = choice?["delta"]?["content"];
+                                                                    if (delta != null) deltas += delta.ToString();
 
-                                                //        Console.WriteLine($"Received: {jsonData}");
-                                                //        // 这里添加JSON解析逻辑
-                                                //    }
-                                                //}
+                                                                    if (choice["finish_reason"] != null)
+                                                                    {
+                                                                        finishReason = choice["finish_reason"].ToString();
+                                                                        endTime = json["created"]!.ToObject<long>();
+                                                                    }
+                                                                }
+                                                            }
+
+                                                            if (json.TryGetValue("usage", out var usage))
+                                                            {
+                                                                if (usage != null)
+                                                                {
+                                                                    var promptTokens = usage["prompt_tokens"]?.ToString();
+                                                                    var completionTokens = usage["completion_tokens"]?.ToString();
+                                                                    var totalTokens = usage["total_tokens"]?.ToString();
+                                                                    Console.WriteLine(promptTokens);
+                                                                    Console.WriteLine(completionTokens);
+                                                                    Console.WriteLine(totalTokens);
+                                                                }
+                                                            }
+                                                        }
+                                                        catch (Exception e)
+                                                        {
+                                                            Console.WriteLine(e);
+                                                        }
+                                                    }
+                                                }
 
                                                 await context.Response.WriteAsync(line + Environment.NewLine);
                                                 await context.Response.Body.FlushAsync();
@@ -428,6 +487,7 @@ namespace Onllama.MondrianGateway
                                                 ReplaceTokensList.RemoveAt(0);
                                             }
                                         }
+
                                     }
                                     catch (Exception e)
                                     {
