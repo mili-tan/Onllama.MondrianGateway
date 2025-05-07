@@ -424,6 +424,7 @@ namespace Onllama.MondrianGateway
                                             Id = msgSetId.ToString(),
                                         };
                                         var deltas = "";
+                                        var deltaRole = "";
 
                                         while (true)
                                         {
@@ -452,7 +453,7 @@ namespace Onllama.MondrianGateway
                                                         if (jsonData == "[DONE]")
                                                         {
                                                             Console.WriteLine("___________");
-                                                            msgSet.Output = deltas;
+                                                            msgSet.Output = deltaRole + ":" + deltas;
                                                             msgSet.PromptDuration = 0;
                                                             msgSet.EvalDuration = msgSet.EndTime - msgSet.StartTime;
                                                             msgSet.LoadDuration = msgSet.StartTime - msgSet.ReqTime;
@@ -470,10 +471,13 @@ namespace Onllama.MondrianGateway
                                                             {
                                                                 foreach (var choice in json["choices"]!)
                                                                 {
-                                                                    var delta = choice?["delta"]?["content"];
-                                                                    if (delta != null) deltas += delta.ToString();
+                                                                    var delta = choice?["delta"];
+                                                                    if (delta?["role"] != null)
+                                                                        deltaRole = delta["role"]?.ToString();
+                                                                    if (delta?["content"] != null)
+                                                                        deltas += delta["content"]?.ToString();
 
-                                                                    if (choice["finish_reason"] != null)
+                                                                    if (choice?["finish_reason"] != null)
                                                                     {
                                                                         msgSet.FinishReason =
                                                                             choice["finish_reason"]?.ToString();
@@ -485,15 +489,12 @@ namespace Onllama.MondrianGateway
 
                                                             if (json.TryGetValue("usage", out var usage))
                                                             {
-                                                                if (usage != null)
-                                                                {
-                                                                    msgSet.InputTokens = usage["prompt_tokens"]
-                                                                        ?.ToObject<int>();
-                                                                    msgSet.OutputTokens = usage["completion_tokens"]
-                                                                        ?.ToObject<int>();
-                                                                    msgSet.TotalTokens = usage["total_tokens"]
-                                                                        ?.ToObject<int>();
-                                                                }
+                                                                msgSet.InputTokens = usage["prompt_tokens"]
+                                                                    ?.ToObject<int>();
+                                                                msgSet.OutputTokens = usage["completion_tokens"]
+                                                                    ?.ToObject<int>();
+                                                                msgSet.TotalTokens = usage["total_tokens"]
+                                                                    ?.ToObject<int>();
                                                             }
                                                         }
                                                         catch (Exception e)
@@ -635,7 +636,7 @@ namespace Onllama.MondrianGateway
         [DisplayName("请求时间")] public long ReqTime { get; set; }
         [DisplayName("开始时间")] public long StartTime { get; set; }
         [DisplayName("结束时间")] public long EndTime { get; set; }
-        [DisplayName("结束")] public string FinishReason { get; set; }
+        [DisplayName("结束")] public string? FinishReason { get; set; }
     }
 
 }
