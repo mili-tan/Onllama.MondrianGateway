@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using NRedisStack.RedisStackCommands;
 using OllamaSharp;
@@ -452,13 +453,21 @@ namespace Onllama.MondrianGateway
                                                         var jsonData = line.Substring(6);
                                                         if (jsonData == "[DONE]")
                                                         {
-                                                            Console.WriteLine("___________");
-                                                            msgSet.Output = deltaRole + ":" + deltas;
-                                                            msgSet.PromptDuration = 0;
-                                                            msgSet.EvalDuration = msgSet.EndTime - msgSet.StartTime;
-                                                            msgSet.LoadDuration = msgSet.StartTime - msgSet.ReqTime;
-                                                            msgSet.Time = DateTime.Now;
-                                                            return;
+                                                            try
+                                                            {
+                                                                Console.WriteLine("___________");
+                                                                msgSet.Output = deltaRole + ":" + deltas;
+                                                                msgSet.PromptDuration = 0;
+                                                                msgSet.EvalDuration = msgSet.EndTime - msgSet.StartTime;
+                                                                msgSet.LoadDuration = msgSet.StartTime - msgSet.ReqTime;
+                                                                msgSet.Time = DateTime.Now;
+                                                                Console.WriteLine(JsonConvert.SerializeObject(msgSet));
+                                                                return;
+                                                            }
+                                                            catch (Exception e)
+                                                            {
+                                                                Console.WriteLine(e);
+                                                            }
                                                         }
 
                                                         try
@@ -595,7 +604,7 @@ namespace Onllama.MondrianGateway
 
         public static long GetCurrentTimeStamp(bool isMinseconds = false)
         {
-            var ts = DateTime.Now - new DateTime(1970, 1, 1, 0, 0, 0, 0);
+            var ts = DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, 0);
             return Convert.ToInt64(isMinseconds ? ts.TotalMilliseconds : ts.TotalSeconds);
         }
     }
@@ -606,15 +615,15 @@ namespace Onllama.MondrianGateway
         [JsonPropertyName("content")] public string? Content { get; set; }
 
         [JsonPropertyName("images")]
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        [System.Text.Json.Serialization.JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public object? Images { get; set; }
 
         [JsonPropertyName("image_url")]
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        [System.Text.Json.Serialization.JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public object? ImageUrl { get; set; }
 
         [JsonPropertyName("tool_calls")]
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        [System.Text.Json.Serialization.JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public object? ToolCalls { get; set; }
     }
 
