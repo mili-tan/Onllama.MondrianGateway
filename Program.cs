@@ -12,11 +12,9 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using NRedisStack.RedisStackCommands;
 using OllamaSharp;
 using OllamaSharp.Models.Chat;
 using ProxyKit;
-using StackExchange.Redis;
 
 namespace Onllama.MondrianGateway
 {
@@ -35,9 +33,9 @@ namespace Onllama.MondrianGateway
         public static bool UseSystemPromptTrim = false;
         public static bool UseSystemPromptInject = false;
 
-        public static string RedisDBStr = File.ReadAllText("redis.text").Trim();
-        public static ConnectionMultiplexer RedisConnection;
-        public static IDatabase RedisDatabase;
+        //public static string RedisDBStr = File.ReadAllText("redis.text").Trim();
+        //public static ConnectionMultiplexer RedisConnection;
+        //public static IDatabase RedisDatabase;
 
         public static string ReplaceTokenMode = "failback";
         public static List<string> ReplaceTokensList = ["sk-test"];
@@ -57,7 +55,6 @@ namespace Onllama.MondrianGateway
         public static OllamaApiClient OllamaApi = new OllamaApiClient(new Uri(ActionApiUrl));
 
         public static Dictionary<HashSet<string>, List<Message>> HashsDictionary = new();
-
         public static FastCache<Guid, string> MsgSets = new FastCache<Guid, string>();
 
         static void Main(string[] args)
@@ -138,8 +135,8 @@ namespace Onllama.MondrianGateway
                     }
                 }
 
-                RedisConnection = ConnectionMultiplexer.Connect(RedisDBStr);
-                RedisDatabase = RedisConnection.GetDatabase();
+                //RedisConnection = ConnectionMultiplexer.Connect(RedisDBStr);
+                //RedisDatabase = RedisConnection.GetDatabase();
 
                 var host = new WebHostBuilder()
                     .UseKestrel()
@@ -255,8 +252,8 @@ namespace Onllama.MondrianGateway
 
                                 if (sessionId != null)
                                 {
-                                    RedisDatabase.JSON().Set("Session:" + sessionId + ":" + Ulid.NewUlid().ToGuid(),
-                                        "$", body);
+                                    //RedisDatabase.JSON().Set("Session:" + sessionId + ":" + Ulid.NewUlid().ToGuid(),
+                                    //    "$", body);
                                     try
                                     {
                                         jBody.Remove("session_id");
@@ -288,14 +285,14 @@ namespace Onllama.MondrianGateway
                                             }
 
                                             hashesId = string.Join(',', hashes.ToList());
-                                            RedisDatabase.JSON().Set("MSG-HASH:" + hashesId, "$", body);
+                                            //RedisDatabase.JSON().Set("MSG-HASH:" + hashesId, "$", body);
 
                                             if (MsgSets.Any(x => hashesId.StartsWith(x.Value)))
                                                 msgSetId = MsgSets.FirstOrDefault(x => hashesId.StartsWith(x.Value)).Key;
 
                                             var setBody = jBody.DeepClone();
                                             setBody["Hash"] = hashesId;
-                                            RedisDatabase.JSON().Set("MSG-SET:" + msgSetId, "$", setBody);
+                                            //RedisDatabase.JSON().Set("MSG-SET:" + msgSetId, "$", setBody);
                                             MsgSets.AddOrUpdate(msgSetId, hashesId, TimeSpan.FromMinutes(15));
 
                                             //Console.WriteLine(string.Join(',',
@@ -361,7 +358,7 @@ namespace Onllama.MondrianGateway
                                     }
                                     else
                                     {
-                                        RedisDatabase.JSON().Set("MSG:" + Ulid.NewUlid().ToGuid(), "$", body);
+                                        //RedisDatabase.JSON().Set("MSG:" + Ulid.NewUlid().ToGuid(), "$", body);
                                     }
                                 }
 
