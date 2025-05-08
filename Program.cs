@@ -242,10 +242,8 @@ namespace Onllama.MondrianGateway
                                 var jBody = JObject.Parse(body);
                                 var isStream = jBody.ContainsKey("stream") && jBody["stream"]!.ToObject<bool>();
                                 var sessionId = jBody.TryGetValue("session_id", out var sessionFromBody)
-                                    ?
-                                    sessionFromBody.ToString()
-                                    :
-                                    context.Request.Headers.TryGetValue("session_id", out var sessionFromHeader)
+                                    ? sessionFromBody.ToString()
+                                    : context.Request.Headers.TryGetValue("session_id", out var sessionFromHeader)
                                         ? sessionFromHeader.ToString()
                                         : null;
 
@@ -255,8 +253,6 @@ namespace Onllama.MondrianGateway
 
                                 if (sessionId != null)
                                 {
-                                    //RedisDatabase.JSON().Set("Session:" + sessionId + ":" + Ulid.NewUlid().ToGuid(),
-                                    //    "$", body);
                                     try
                                     {
                                         jBody.Remove("session_id");
@@ -286,16 +282,45 @@ namespace Onllama.MondrianGateway
                                                         fnv.ComputeHash(Encoding.UTF8.GetBytes(item.Content)))
                                                     .TrimEnd('='));
                                             }
-
                                             hashesId = string.Join(',', hashes.ToList());
+                                            
                                             //RedisDatabase.JSON().Set("MSG-HASH:" + hashesId, "$", body);
+                                            if (!msgContext.RequestHashesObjs.Any(x => x.Hashes == hashesId))
+                                            {
+                                                msgContext.RequestHashesObjs.Add(new RequestHashesObj()
+                                                {
+                                                    Hashes = hashesId,
+                                                    SessionId = sessionId,
+                                                    Input = jBody.ToString()
+                                                });
+                                            }
 
                                             if (MsgSets.Any(x => hashesId.StartsWith(x.Value)))
                                                 msgSetId = MsgSets.FirstOrDefault(x => hashesId.StartsWith(x.Value)).Key;
 
-                                            var setBody = jBody.DeepClone();
-                                            setBody["Hash"] = hashesId;
-                                            //RedisDatabase.JSON().Set("MSG-SET:" + msgSetId, "$", setBody);
+                                            if (!msgContext.RequestMsgIdObjs.Any(x => x.Id == msgSetId.ToString()))
+                                            {
+                                                msgContext.RequestMsgIdObjs.Add(new RequestMsgIdObj()
+                                                {
+                                                    Id = msgSetId.ToString(),
+                                                    Hashes = hashesId,
+                                                    SessionId = sessionId,
+                                                    Input = jBody.ToString()
+                                                });
+                                            }
+                                            else
+                                            {
+                                                var sessionObj = msgContext.RequestMsgIdObjs.FirstOrDefault(x =>
+                                                    x.Id == msgSetId.ToString());
+                                                if (sessionObj != null)
+                                                {
+                                                    sessionObj.Hashes = msgSetId.ToString();
+                                                    sessionObj.Input = hashesId;
+                                                    sessionObj.SessionId = sessionId;
+                                                    msgContext.RequestMsgIdObjs.Update(sessionObj);
+                                                }
+                                            }
+
                                             MsgSets.AddOrUpdate(msgSetId, hashesId, TimeSpan.FromMinutes(15));
 
                                             //Console.WriteLine(string.Join(',',
@@ -361,10 +386,17 @@ namespace Onllama.MondrianGateway
                                     }
                                     else
                                     {
-                                        //RedisDatabase.JSON().Set("MSG:" + Ulid.NewUlid().ToGuid(), "$", body);
+                                        msgContext.RequestMsgIdObjs.Add(new RequestMsgIdObj()
+                                        {
+                                            Id = msgSetId.ToString(),
+                                            Hashes = hashesId,
+                                            SessionId = sessionId,
+                                            Input = jBody.ToString()
+                                        });
                                     }
                                 }
 
+                                await msgContext.SaveChangesAsync();
                                 context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(jBody.ToString()));
                                 context.Request.ContentLength = context.Request.Body.Length;
 
@@ -529,7 +561,7 @@ namespace Onllama.MondrianGateway
                                             }
 
                                             msgContext.MsgEntities.Add(msgEntity);
-                                            msgContext.SaveChanges();
+                                            await msgContext.SaveChangesAsync();
 
                                             var statusCode = Convert.ToInt32(response.StatusCode);
                                             if (UseTokenReplace && ReplaceTokenMode == "failback" &&
