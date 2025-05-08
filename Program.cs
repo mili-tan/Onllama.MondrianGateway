@@ -476,6 +476,17 @@ namespace Onllama.MondrianGateway
                                                             if (string.IsNullOrEmpty(deltas))
                                                                 msgSet.StartTime = json["created"]!.ToObject<long>();
 
+                                                            if (json.ContainsKey("tool_calls") && json["tool_calls"]!.Any())
+                                                            {
+                                                                deltas = json["tool_calls"]?.ToString();
+                                                                deltaRole = "tool";
+                                                            }
+                                                            if (json.ContainsKey("function_call") && json["function_call"]!.Any())
+                                                            {
+                                                                deltas = json["function_call"]?.ToString();
+                                                                deltaRole = "tool";
+                                                            }
+
                                                             if (json.ContainsKey("choices") && json["choices"]!.Any())
                                                             {
                                                                 foreach (var choice in json["choices"]!)
@@ -485,6 +496,7 @@ namespace Onllama.MondrianGateway
                                                                         deltaRole = delta["role"]?.ToString();
                                                                     if (delta?["content"] != null)
                                                                         deltas += delta["content"]?.ToString();
+
 
                                                                     if (choice?["finish_reason"] != null)
                                                                     {
