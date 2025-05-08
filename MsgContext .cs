@@ -40,4 +40,16 @@ namespace Onllama.MondrianGateway
         [DisplayName("结束")] public string? FinishReason { get; set; }
     }
 
+    public class MsgIdObj
+    {
+        [Key] [DisplayName("对话 ID")] public string Id { get; set; }
+        [DisplayName("对话 Hashes")] public string Hashes { get; set; }
+        [DisplayName("输入内容")] public string Input { get; set; }
+    }
+
+    public class MsgHashesObj
+    {
+        [Key] [DisplayName("对话 Hashes")] public string Hashes { get; set; }
+        [DisplayName("输入内容")] public string Input { get; set; }
+    }
 }

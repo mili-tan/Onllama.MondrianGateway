@@ -61,6 +61,9 @@ namespace Onllama.MondrianGateway
         {
             try
             {
+                var msgContext = new MsgContext();
+                msgContext.Database.EnsureCreated();
+
                 var configurationRoot = new ConfigurationBuilder()
                     .AddEnvironmentVariables()
                     .Build();
@@ -412,7 +415,7 @@ namespace Onllama.MondrianGateway
                                         var sb = new StringBuilder();
                                         var lines = new List<string>();
 
-                                        var msgSet = new MsgEntity()
+                                        var msgEntity = new MsgEntity()
                                         {
                                             ReqTime = GetCurrentTimeStamp(), 
                                             Time = DateTime.Now,
@@ -453,13 +456,12 @@ namespace Onllama.MondrianGateway
                                                             try
                                                             {
                                                                 Console.WriteLine("___________");
-                                                                msgSet.Output = deltaRole + ":" + deltas;
-                                                                msgSet.PromptDuration = 0;
-                                                                msgSet.EvalDuration = msgSet.EndTime - msgSet.StartTime;
-                                                                msgSet.LoadDuration = msgSet.StartTime - msgSet.ReqTime;
-                                                                msgSet.Time = DateTime.Now;
-                                                                Console.WriteLine(JsonConvert.SerializeObject(msgSet));
-                                                                return;
+                                                                msgEntity.Output = deltaRole + ":" + deltas;
+                                                                msgEntity.PromptDuration = 0;
+                                                                msgEntity.EvalDuration = msgEntity.EndTime - msgEntity.StartTime;
+                                                                msgEntity.LoadDuration = msgEntity.StartTime - msgEntity.ReqTime;
+                                                                msgEntity.Time = DateTime.Now;
+                                                                Console.WriteLine(JsonConvert.SerializeObject(msgEntity));
                                                             }
                                                             catch (Exception e)
                                                             {
@@ -471,7 +473,7 @@ namespace Onllama.MondrianGateway
                                                         {
                                                             var json = JObject.Parse(jsonData);
                                                             if (string.IsNullOrEmpty(deltas))
-                                                                msgSet.StartTime = json["created"]!.ToObject<long>();
+                                                                msgEntity.StartTime = json["created"]!.ToObject<long>();
 
                                                             if (json.ContainsKey("tool_calls") && json["tool_calls"]!.Any())
                                                             {
@@ -497,9 +499,9 @@ namespace Onllama.MondrianGateway
 
                                                                     if (choice?["finish_reason"] != null)
                                                                     {
-                                                                        msgSet.FinishReason =
+                                                                        msgEntity.FinishReason =
                                                                             choice["finish_reason"]?.ToString();
-                                                                        msgSet.EndTime =
+                                                                        msgEntity.EndTime =
                                                                             json["created"]!.ToObject<long>();
                                                                     }
                                                                 }
@@ -507,11 +509,11 @@ namespace Onllama.MondrianGateway
 
                                                             if (json.TryGetValue("usage", out var usage))
                                                             {
-                                                                msgSet.InputTokens = usage["prompt_tokens"]
+                                                                msgEntity.InputTokens = usage["prompt_tokens"]
                                                                     ?.ToObject<int>();
-                                                                msgSet.OutputTokens = usage["completion_tokens"]
+                                                                msgEntity.OutputTokens = usage["completion_tokens"]
                                                                     ?.ToObject<int>();
-                                                                msgSet.TotalTokens = usage["total_tokens"]
+                                                                msgEntity.TotalTokens = usage["total_tokens"]
                                                                     ?.ToObject<int>();
                                                             }
                                                         }
@@ -525,6 +527,9 @@ namespace Onllama.MondrianGateway
                                                 await context.Response.WriteAsync(line + Environment.NewLine);
                                                 await context.Response.Body.FlushAsync();
                                             }
+
+                                            msgContext.MsgEntities.Add(msgEntity);
+                                            msgContext.SaveChanges();
 
                                             var statusCode = Convert.ToInt32(response.StatusCode);
                                             if (UseTokenReplace && ReplaceTokenMode == "failback" &&
