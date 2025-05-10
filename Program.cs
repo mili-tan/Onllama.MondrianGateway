@@ -1,5 +1,4 @@
-﻿using System.ComponentModel;
-using System.Net;
+﻿using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Serialization;
@@ -500,58 +499,60 @@ namespace Onllama.MondrianGateway
                                                                 Console.WriteLine(e);
                                                             }
                                                         }
-
-                                                        try
+                                                        else
                                                         {
-                                                            var json = JObject.Parse(jsonData);
-                                                            if (string.IsNullOrEmpty(deltas))
-                                                                msgEntity.StartTime = json["created"]!.ToObject<long>();
+                                                            try
+                                                            {
+                                                                var json = JObject.Parse(jsonData);
+                                                                if (string.IsNullOrEmpty(deltas))
+                                                                    msgEntity.StartTime = json["created"]!.ToObject<long>();
 
-                                                            if (json.ContainsKey("tool_calls") && json["tool_calls"]!.Any())
-                                                            {
-                                                                deltas = json["tool_calls"]?.ToString();
-                                                                deltaRole = "tool";
-                                                            }
-                                                            if (json.ContainsKey("function_call") && json["function_call"]!.Any())
-                                                            {
-                                                                deltas = json["function_call"]?.ToString();
-                                                                deltaRole = "tool";
-                                                            }
-
-                                                            if (json.ContainsKey("choices") && json["choices"]!.Any())
-                                                            {
-                                                                foreach (var choice in json["choices"]!)
+                                                                if (json.ContainsKey("tool_calls") && json["tool_calls"]!.Any())
                                                                 {
-                                                                    var delta = choice?["delta"];
-                                                                    if (delta?["role"] != null)
-                                                                        deltaRole = delta["role"]?.ToString();
-                                                                    if (delta?["content"] != null)
-                                                                        deltas += delta["content"]?.ToString();
+                                                                    deltas = json["tool_calls"]?.ToString();
+                                                                    deltaRole = "tool";
+                                                                }
+                                                                if (json.ContainsKey("function_call") && json["function_call"]!.Any())
+                                                                {
+                                                                    deltas = json["function_call"]?.ToString();
+                                                                    deltaRole = "tool";
+                                                                }
 
-
-                                                                    if (choice?["finish_reason"] != null)
+                                                                if (json.ContainsKey("choices") && json["choices"]!.Any())
+                                                                {
+                                                                    foreach (var choice in json["choices"]!)
                                                                     {
-                                                                        msgEntity.FinishReason =
-                                                                            choice["finish_reason"]?.ToString();
-                                                                        msgEntity.EndTime =
-                                                                            json["created"]!.ToObject<long>();
+                                                                        var delta = choice?["delta"];
+                                                                        if (delta?["role"] != null)
+                                                                            deltaRole = delta["role"]?.ToString();
+                                                                        if (delta?["content"] != null)
+                                                                            deltas += delta["content"]?.ToString();
+
+
+                                                                        if (choice?["finish_reason"] != null)
+                                                                        {
+                                                                            msgEntity.FinishReason =
+                                                                                choice["finish_reason"]?.ToString();
+                                                                            msgEntity.EndTime =
+                                                                                json["created"]!.ToObject<long>();
+                                                                        }
                                                                     }
                                                                 }
-                                                            }
 
-                                                            if (json.TryGetValue("usage", out var usage))
-                                                            {
-                                                                msgEntity.InputTokens = usage["prompt_tokens"]
-                                                                    ?.ToObject<int>();
-                                                                msgEntity.OutputTokens = usage["completion_tokens"]
-                                                                    ?.ToObject<int>();
-                                                                msgEntity.TotalTokens = usage["total_tokens"]
-                                                                    ?.ToObject<int>();
+                                                                if (json.TryGetValue("usage", out var usage))
+                                                                {
+                                                                    msgEntity.InputTokens = usage["prompt_tokens"]
+                                                                        ?.ToObject<int>();
+                                                                    msgEntity.OutputTokens = usage["completion_tokens"]
+                                                                        ?.ToObject<int>();
+                                                                    msgEntity.TotalTokens = usage["total_tokens"]
+                                                                        ?.ToObject<int>();
+                                                                }
                                                             }
-                                                        }
-                                                        catch (Exception e)
-                                                        {
-                                                            Console.WriteLine(e);
+                                                            catch (Exception e)
+                                                            {
+                                                                Console.WriteLine(e);
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -559,9 +560,6 @@ namespace Onllama.MondrianGateway
                                                 await context.Response.WriteAsync(line + Environment.NewLine);
                                                 await context.Response.Body.FlushAsync();
                                             }
-
-                                            msgContext.MsgEntities.Add(msgEntity);
-                                            await msgContext.SaveChangesAsync();
 
                                             var statusCode = Convert.ToInt32(response.StatusCode);
                                             if (UseTokenReplace && ReplaceTokenMode == "failback" &&
@@ -572,6 +570,40 @@ namespace Onllama.MondrianGateway
                                                 ReplaceTokensList.RemoveAt(0);
                                             }
                                         }
+
+                                        if (!msgContext.MsgEntities.Any(x => x.Id == msgEntity.Id))
+                                        {
+                                            Console.BackgroundColor = ConsoleColor.Blue;
+                                            Console.WriteLine("Add");
+                                            Console.ResetColor();
+                                            msgContext.MsgEntities.Add(msgEntity);
+                                        }
+                                        else
+                                        {
+                                            Console.BackgroundColor = ConsoleColor.Blue;
+                                            Console.WriteLine("Update");
+                                            Console.ResetColor();
+
+                                            var msgEntityGet = msgContext.MsgEntities.FirstOrDefault(x =>
+                                                x.Id == msgEntity.Id);
+                                            msgEntityGet.ReqTime = msgEntity.ReqTime;
+                                            msgEntityGet.Input = msgEntity.Input;
+                                            msgEntityGet.Body = msgEntity.Body;
+                                            msgEntityGet.Hashes = msgEntity.Hashes;
+                                            msgEntityGet.InputTokens = msgEntity.InputTokens;
+                                            msgEntityGet.OutputTokens = msgEntity.OutputTokens;
+                                            msgEntityGet.TotalTokens = msgEntity.TotalTokens;
+                                            msgEntityGet.Output = msgEntity.Output;
+                                            msgEntityGet.StartTime = msgEntity.StartTime;
+                                            msgEntityGet.EndTime = msgEntity.EndTime;
+                                            msgEntityGet.LoadDuration = msgEntity.LoadDuration;
+                                            msgEntityGet.PromptDuration = msgEntity.PromptDuration;
+                                            msgEntityGet.EvalDuration = msgEntity.EvalDuration;
+                                            msgEntityGet.FinishReason = msgEntity.FinishReason;
+                                            msgContext.MsgEntities.Update(msgEntityGet);
+                                        }
+
+                                        await msgContext.SaveChangesAsync();
 
                                     }
                                     catch (Exception e)
