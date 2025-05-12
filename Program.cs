@@ -240,17 +240,17 @@ namespace Onllama.MondrianGateway
                                 var body = await new StreamReader(context.Request.Body).ReadToEndAsync();
                                 var jBody = JObject.Parse(body);
                                 var isStream = jBody.ContainsKey("stream") && jBody["stream"]!.ToObject<bool>();
-                                var sessionId = jBody.TryGetValue("session_id", out var sessionFromBody)
-                                    ? sessionFromBody.ToString()
-                                    : context.Request.Headers.TryGetValue("session_id", out var sessionFromHeader)
-                                        ? sessionFromHeader.ToString()
+                                var roundId = jBody.TryGetValue("round_id", out var roundFromBody)
+                                    ? roundFromBody.ToString()
+                                    : context.Request.Headers.TryGetValue("round_id", out var roundFromHeader)
+                                        ? roundFromHeader.ToString()
                                         : null;
 
                                 jBody["stream_options"] = new JObject() {["include_usage"] = true};
 
                                 Console.WriteLine(jBody);
 
-                                if (sessionId != null)
+                                if (roundId != null)
                                 {
                                     try
                                     {
@@ -289,7 +289,7 @@ namespace Onllama.MondrianGateway
                                                 msgContext.RequestHashesObjs.Add(new RequestHashesObj()
                                                 {
                                                     Hashes = hashesId,
-                                                    RoundId = sessionId,
+                                                    RoundId = roundId,
                                                     Input = jBody.ToString()
                                                 });
                                             }
@@ -303,7 +303,7 @@ namespace Onllama.MondrianGateway
                                                 {
                                                     Id = msgSetId.ToString(),
                                                     Hashes = hashesId,
-                                                    RoundId = sessionId,
+                                                    RoundId = roundId,
                                                     Input = jBody.ToString()
                                                 });
                                             }
@@ -315,7 +315,7 @@ namespace Onllama.MondrianGateway
                                                 {
                                                     sessionObj.Hashes = msgSetId.ToString();
                                                     sessionObj.Input = hashesId;
-                                                    sessionObj.RoundId = sessionId;
+                                                    sessionObj.RoundId = roundId;
                                                     msgContext.MsgRequestIdObjs.Update(sessionObj);
                                                 }
                                             }
@@ -389,7 +389,7 @@ namespace Onllama.MondrianGateway
                                         {
                                             Id = msgSetId.ToString(),
                                             Hashes = hashesId,
-                                            RoundId = sessionId,
+                                            RoundId = roundId,
                                             Input = jBody.ToString()
                                         });
                                     }
