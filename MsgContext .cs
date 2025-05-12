@@ -7,8 +7,8 @@ namespace Onllama.MondrianGateway
 {
     internal class MsgContext : DbContext
     {
-        public DbSet<MsgEntity> MsgEntities { get; set; }
-        public DbSet<RequestMsgIdObj> RequestMsgIdObjs { get; set; }
+        public DbSet<MsgThreadEntity> MsgThreadEntities { get; set; }
+        public DbSet<MsgRequestIdObj> MsgRequestIdObjs { get; set; }
         public DbSet<RequestHashesObj> RequestHashesObjs { get; set; }
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
@@ -21,9 +21,10 @@ namespace Onllama.MondrianGateway
         }
     }
 
-    public class MsgEntity
+    public class MsgThreadEntity
     {
         [Key] [DisplayName("对话 ID")] public string Id { get; set; }
+        [DisplayName("项目 ID")] public string ProjectId { get; set; } = "default";
         [DisplayName("对话 Hashes")] public string? Hashes { get; set; }
         [DisplayName("输入内容")] public string? Input { get; set; }
         [DisplayName("输出内容")] public string? Output { get; set; }
@@ -42,13 +43,12 @@ namespace Onllama.MondrianGateway
         [DisplayName("结束")] public string? FinishReason { get; set; }
     }
 
-    public class RequestMsgIdObj
+    public class MsgRequestIdObj
     {
         [Key] [DisplayName("对话 ID")] public string Id { get; set; }
+        [DisplayName("项目 ID")] public string ProjectId { get; set; } = "default";
         [DisplayName("对话 Hashes")] public string? Hashes { get; set; }
-
-        [DisplayName("会话ID")] public string? SessionId { get; set; }
-
+        [DisplayName("回合 ID")] public string? RoundId { get; set; }
         [DisplayName("输入内容")] public string? Input { get; set; }
         [DisplayName("创建时间")] public DateTime? Time { get; set; } = DateTime.Now;
     }
@@ -56,7 +56,8 @@ namespace Onllama.MondrianGateway
     public class RequestHashesObj
     {
         [Key] [DisplayName("对话 Hashes")] public string? Hashes { get; set; }
-        [DisplayName("会话ID")] public string? SessionId { get; set; }
+        [DisplayName("项目 ID")] public string ProjectId { get; set; } = "default";
+        [DisplayName("回合 ID")] public string? RoundId { get; set; }
         [DisplayName("输入内容")] public string? Input { get; set; }
         [DisplayName("创建时间")] public DateTime? Time { get; set; } = DateTime.Now;
     }

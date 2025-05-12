@@ -289,7 +289,7 @@ namespace Onllama.MondrianGateway
                                                 msgContext.RequestHashesObjs.Add(new RequestHashesObj()
                                                 {
                                                     Hashes = hashesId,
-                                                    SessionId = sessionId,
+                                                    RoundId = sessionId,
                                                     Input = jBody.ToString()
                                                 });
                                             }
@@ -297,26 +297,26 @@ namespace Onllama.MondrianGateway
                                             if (MsgSets.Any(x => hashesId.StartsWith(x.Value)))
                                                 msgSetId = MsgSets.FirstOrDefault(x => hashesId.StartsWith(x.Value)).Key;
 
-                                            if (!msgContext.RequestMsgIdObjs.Any(x => x.Id == msgSetId.ToString()))
+                                            if (!msgContext.MsgRequestIdObjs.Any(x => x.Id == msgSetId.ToString()))
                                             {
-                                                msgContext.RequestMsgIdObjs.Add(new RequestMsgIdObj()
+                                                msgContext.MsgRequestIdObjs.Add(new MsgRequestIdObj()
                                                 {
                                                     Id = msgSetId.ToString(),
                                                     Hashes = hashesId,
-                                                    SessionId = sessionId,
+                                                    RoundId = sessionId,
                                                     Input = jBody.ToString()
                                                 });
                                             }
                                             else
                                             {
-                                                var sessionObj = msgContext.RequestMsgIdObjs.FirstOrDefault(x =>
+                                                var sessionObj = msgContext.MsgRequestIdObjs.FirstOrDefault(x =>
                                                     x.Id == msgSetId.ToString());
                                                 if (sessionObj != null)
                                                 {
                                                     sessionObj.Hashes = msgSetId.ToString();
                                                     sessionObj.Input = hashesId;
-                                                    sessionObj.SessionId = sessionId;
-                                                    msgContext.RequestMsgIdObjs.Update(sessionObj);
+                                                    sessionObj.RoundId = sessionId;
+                                                    msgContext.MsgRequestIdObjs.Update(sessionObj);
                                                 }
                                             }
 
@@ -385,11 +385,11 @@ namespace Onllama.MondrianGateway
                                     }
                                     else
                                     {
-                                        msgContext.RequestMsgIdObjs.Add(new RequestMsgIdObj()
+                                        msgContext.MsgRequestIdObjs.Add(new MsgRequestIdObj()
                                         {
                                             Id = msgSetId.ToString(),
                                             Hashes = hashesId,
-                                            SessionId = sessionId,
+                                            RoundId = sessionId,
                                             Input = jBody.ToString()
                                         });
                                     }
@@ -446,7 +446,7 @@ namespace Onllama.MondrianGateway
                                         var sb = new StringBuilder();
                                         var lines = new List<string>();
 
-                                        var msgEntity = new MsgEntity()
+                                        var msgEntity = new MsgThreadEntity()
                                         {
                                             ReqTime = GetCurrentTimeStamp(), 
                                             Time = DateTime.Now,
@@ -571,12 +571,12 @@ namespace Onllama.MondrianGateway
                                             }
                                         }
 
-                                        if (!msgContext.MsgEntities.Any(x => x.Id == msgEntity.Id))
+                                        if (!msgContext.MsgThreadEntities.Any(x => x.Id == msgEntity.Id))
                                         {
                                             Console.BackgroundColor = ConsoleColor.Blue;
                                             Console.WriteLine("Add");
                                             Console.ResetColor();
-                                            msgContext.MsgEntities.Add(msgEntity);
+                                            msgContext.MsgThreadEntities.Add(msgEntity);
                                         }
                                         else
                                         {
@@ -584,7 +584,7 @@ namespace Onllama.MondrianGateway
                                             Console.WriteLine("Update");
                                             Console.ResetColor();
 
-                                            var msgEntityGet = msgContext.MsgEntities.FirstOrDefault(x =>
+                                            var msgEntityGet = msgContext.MsgThreadEntities.FirstOrDefault(x =>
                                                 x.Id == msgEntity.Id);
                                             msgEntityGet.ReqTime = msgEntity.ReqTime;
                                             msgEntityGet.Input = msgEntity.Input;
@@ -600,7 +600,7 @@ namespace Onllama.MondrianGateway
                                             msgEntityGet.PromptDuration = msgEntity.PromptDuration;
                                             msgEntityGet.EvalDuration = msgEntity.EvalDuration;
                                             msgEntityGet.FinishReason = msgEntity.FinishReason;
-                                            msgContext.MsgEntities.Update(msgEntityGet);
+                                            msgContext.MsgThreadEntities.Update(msgEntityGet);
                                         }
 
                                         await msgContext.SaveChangesAsync();
