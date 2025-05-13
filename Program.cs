@@ -239,12 +239,6 @@ namespace Onllama.MondrianGateway
                                             }
                                         }
 
-
-                                        context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(jBody.ToString()));
-                                        context.Request.ContentLength = context.Request.Body.Length;
-                                        response = await context.ForwardTo(new Uri(TargetApiUrl + path)).Send();
-                                        response.Headers.Add("X-Forwarder-By", "MondrianGateway/0.1");
-
                                         msgContext.MsgRequestIdObjs.Add(new MsgRequestIdObj()
                                         {
                                             Id = Ulid.NewUlid().ToGuid().ToString(),
@@ -253,6 +247,12 @@ namespace Onllama.MondrianGateway
                                             Path = context.Request.Path.ToString()
                                         });
                                         await msgContext.SaveChangesAsync();
+
+                                        context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(jBody.ToString()));
+                                        context.Request.ContentLength = context.Request.Body.Length;
+                                        response = await context.ForwardTo(new Uri(TargetApiUrl + path)).Send();
+                                        response.Headers.Add("X-Forwarder-By", "MondrianGateway/0.1");
+
                                         return response;
                                     }
                                     catch (Exception e)
@@ -323,7 +323,7 @@ namespace Onllama.MondrianGateway
                                                 {
                                                     Hashes = hashesId,
                                                     RoundId = roundId,
-                                                    Input = jBody.ToString()
+                                                    Input = jBody.ToString(),
                                                 });
                                             }
 
