@@ -307,13 +307,14 @@ namespace Onllama.MondrianGateway
                                         {
                                             var fnv = FNV1a.Create();
                                             var hashes = new HashSet<string>();
-                                            foreach (var item in msgs)
+                                            foreach (var item in msgs.Where(item => item.Role?.ToUpper() != "SYSTEM"))
                                             {
                                                 hashes.Add(Convert
                                                     .ToBase64String(
                                                         fnv.ComputeHash(Encoding.UTF8.GetBytes(item.Content)))
                                                     .TrimEnd('='));
                                             }
+
                                             hashesId = string.Join(',', hashes.ToList());
                                             
                                             //RedisDatabase.JSON().Set("MSG-HASH:" + hashesId, "$", body);
