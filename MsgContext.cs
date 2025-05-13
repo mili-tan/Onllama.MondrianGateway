@@ -13,11 +13,11 @@ namespace Onllama.MondrianGateway
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
-            optionsBuilder.UseSqlite("Data Source=msg.db");
-            //optionsBuilder.UseMySql(File.Exists("db.text")
-            //        ? File.ReadAllText("db.text").Trim()
-            //        : Environment.GetEnvironmentVariable("MYSQL_CONNECTION_STRING"),
-            //    new MySqlServerVersion("8.0.0.0"));
+            //optionsBuilder.UseSqlite("Data Source=msg.db");
+            optionsBuilder.UseMySql(File.Exists("db.text")
+                    ? File.ReadAllText("db.text").Trim()
+                    : Environment.GetEnvironmentVariable("MYSQL_CONNECTION_STRING"),
+                new MySqlServerVersion("8.0.0.0"));
         }
     }
 
@@ -51,6 +51,10 @@ namespace Onllama.MondrianGateway
         [DisplayName("回合 ID")] public string? RoundId { get; set; }
         [DisplayName("请求内容")] public string? Body { get; set; }
         [DisplayName("请求路径")] public string? Path { get; set; }
+        [DisplayName("IP")] public string? IP { get; set; }
+        [DisplayName("请求方式")] public string? Method { get; set; }
+        [DisplayName("请求头")] public string? Header { get; set; }
+        [DisplayName("客户端")] public string? UserAgent { get; set; }
         [DisplayName("创建时间")] public DateTime? Time { get; set; } = DateTime.Now;
     }
 
