@@ -49,7 +49,8 @@ namespace Onllama.MondrianGateway
         [DisplayName("项目 ID")] public string ProjectId { get; set; } = "default";
         [DisplayName("对话 Hashes")] public string? Hashes { get; set; }
         [DisplayName("回合 ID")] public string? RoundId { get; set; }
-        [DisplayName("输入内容")] public string? Input { get; set; }
+        [DisplayName("请求内容")] public string? Body { get; set; }
+        [DisplayName("请求路径")] public string? Path { get; set; }
         [DisplayName("创建时间")] public DateTime? Time { get; set; } = DateTime.Now;
     }
 

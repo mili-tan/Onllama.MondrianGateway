@@ -54,7 +54,7 @@ namespace Onllama.MondrianGateway
         public static OllamaApiClient OllamaApi = new OllamaApiClient(new Uri(ActionApiUrl));
 
         public static Dictionary<HashSet<string>, List<Message>> HashsDictionary = new();
-        public static FastCache<Guid, string> MsgSets = new FastCache<Guid, string>();
+        public static FastCache<Guid, string> MsgThreads = new FastCache<Guid, string>();
 
         static void Main(string[] args)
         {
@@ -217,8 +217,42 @@ namespace Onllama.MondrianGateway
                                     var response = new HttpResponseMessage();
                                     try
                                     {
+                                        var body = await new StreamReader(context.Request.Body).ReadToEndAsync();
+                                        var jBody = JObject.Parse(body);
+
+                                        var roundId = jBody.TryGetValue("round_id", out var roundFromBody)
+                                            ? roundFromBody.ToString()
+                                            : context.Request.Headers.TryGetValue("round_id", out var roundFromHeader)
+                                                ? roundFromHeader.ToString()
+                                                : null;
+
+                                        if (roundId != null)
+                                        {
+                                            try
+                                            {
+                                                jBody.Remove("round_id");
+                                                context.Request.Headers.Remove("round_id");
+                                            }
+                                            catch (Exception e)
+                                            {
+                                                Console.WriteLine(e);
+                                            }
+                                        }
+
+
+                                        context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(jBody.ToString()));
+                                        context.Request.ContentLength = context.Request.Body.Length;
                                         response = await context.ForwardTo(new Uri(TargetApiUrl + path)).Send();
                                         response.Headers.Add("X-Forwarder-By", "MondrianGateway/0.1");
+
+                                        msgContext.MsgRequestIdObjs.Add(new MsgRequestIdObj()
+                                        {
+                                            Id = Ulid.NewUlid().ToGuid().ToString(),
+                                            RoundId = roundId,
+                                            Body = jBody.ToString(),
+                                            Path = context.Request.Path.ToString()
+                                        });
+                                        await msgContext.SaveChangesAsync();
                                         return response;
                                     }
                                     catch (Exception e)
@@ -233,10 +267,9 @@ namespace Onllama.MondrianGateway
                         {
                             endpoint.Map("/v1/chat/completions", async context =>
                             {
-                                var msgSetId = Ulid.NewUlid().ToGuid();
+                                var msgThreadId = Ulid.NewUlid().ToGuid();
                                 var hashesId = string.Empty;
                                 var inputMsg = string.Empty;
-
                                 var body = await new StreamReader(context.Request.Body).ReadToEndAsync();
                                 var jBody = JObject.Parse(body);
                                 var isStream = jBody.ContainsKey("stream") && jBody["stream"]!.ToObject<bool>();
@@ -254,8 +287,8 @@ namespace Onllama.MondrianGateway
                                 {
                                     try
                                     {
-                                        jBody.Remove("session_id");
-                                        context.Request.Headers.Remove("session_id");
+                                        jBody.Remove("round_id");
+                                        context.Request.Headers.Remove("round_id");
                                     }
                                     catch (Exception e)
                                     {
@@ -294,33 +327,20 @@ namespace Onllama.MondrianGateway
                                                 });
                                             }
 
-                                            if (MsgSets.Any(x => hashesId.StartsWith(x.Value)))
-                                                msgSetId = MsgSets.FirstOrDefault(x => hashesId.StartsWith(x.Value)).Key;
 
-                                            if (!msgContext.MsgRequestIdObjs.Any(x => x.Id == msgSetId.ToString()))
-                                            {
-                                                msgContext.MsgRequestIdObjs.Add(new MsgRequestIdObj()
-                                                {
-                                                    Id = msgSetId.ToString(),
-                                                    Hashes = hashesId,
-                                                    RoundId = roundId,
-                                                    Input = jBody.ToString()
-                                                });
-                                            }
-                                            else
-                                            {
-                                                var sessionObj = msgContext.MsgRequestIdObjs.FirstOrDefault(x =>
-                                                    x.Id == msgSetId.ToString());
-                                                if (sessionObj != null)
-                                                {
-                                                    sessionObj.Hashes = msgSetId.ToString();
-                                                    sessionObj.Input = hashesId;
-                                                    sessionObj.RoundId = roundId;
-                                                    msgContext.MsgRequestIdObjs.Update(sessionObj);
-                                                }
-                                            }
+                                            if (MsgThreads.Any(x => hashesId.StartsWith(x.Value)))
+                                                msgThreadId = MsgThreads.FirstOrDefault(x => hashesId.StartsWith(x.Value)).Key;
 
-                                            MsgSets.AddOrUpdate(msgSetId, hashesId, TimeSpan.FromMinutes(15));
+                                            MsgThreads.AddOrUpdate(msgThreadId, hashesId, TimeSpan.FromMinutes(15));
+
+                                            msgContext.MsgRequestIdObjs.Add(new MsgRequestIdObj()
+                                            {
+                                                Id = Ulid.NewUlid().ToGuid().ToString(),
+                                                Hashes = hashesId,
+                                                RoundId = roundId,
+                                                Body = jBody.ToString(),
+                                                Path = context.Request.Path.ToString()
+                                            });
 
                                             //Console.WriteLine(string.Join(',',
                                             //    HashsDictionary.Keys.LastOrDefault(x =>
@@ -387,10 +407,10 @@ namespace Onllama.MondrianGateway
                                     {
                                         msgContext.MsgRequestIdObjs.Add(new MsgRequestIdObj()
                                         {
-                                            Id = msgSetId.ToString(),
+                                            Id = msgThreadId.ToString(),
                                             Hashes = hashesId,
                                             RoundId = roundId,
-                                            Input = jBody.ToString()
+                                            Body = jBody.ToString()
                                         });
                                     }
                                 }
@@ -453,7 +473,7 @@ namespace Onllama.MondrianGateway
                                             Hashes = hashesId,
                                             Input = inputMsg,
                                             Body = jBody.ToString(),
-                                            Id = msgSetId.ToString(),
+                                            Id = msgThreadId.ToString(),
                                         };
                                         var deltas = "";
                                         var deltaRole = "";
