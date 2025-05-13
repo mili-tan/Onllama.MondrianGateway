@@ -160,6 +160,12 @@ namespace Onllama.MondrianGateway
                     {
                         app.Use(async (context, next) =>
                         {
+                            context.Connection.RemoteIpAddress = RealIP.Get(context);
+                            await next(context);
+                        });
+
+                        app.Use(async (context, next) =>
+                        {
                             var reqToken = context.Request.Headers.ContainsKey("Authorization")
                                 ? context.Request.Headers.Authorization.ToString().Split(' ').Last().ToString()
                                 : string.Empty;
