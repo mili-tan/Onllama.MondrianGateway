@@ -218,8 +218,7 @@ namespace Onllama.MondrianGateway
                                                 out var newModel))
                                             jBody["model"] = newModel;
 
-                                        if (context.Request.PathBase.ToString().Contains("v1") ||
-                                            context.Request.Path.ToString().Contains("v1")) 
+                                        if (jBody.ContainsKey("stream") && jBody["stream"]!.ToObject<bool>()) 
                                             jBody["stream_options"] = new JObject() {["include_usage"] = true};
 
                                         roundId = jBody.TryGetValue("round_id", out var roundFromBody)
@@ -453,13 +452,10 @@ namespace Onllama.MondrianGateway
                         {
                             endpoint.Map("/v1/chat/completions", async context =>
                             {
-                                if (context.Request.Method != "POST")
-                                {
-                                    
-                                }
                                 var jBody = (JObject) context.Items["JBody"]!;
                                 var isStream = jBody.ContainsKey("stream") && jBody["stream"]!.ToObject<bool>();
 
+                                Console.WriteLine(TargetApiUrl + context.Request.PathBase + context.Request.Path);
                                 Console.WriteLine("CHAT:" + jBody);
 
                                 //try
@@ -477,8 +473,7 @@ namespace Onllama.MondrianGateway
                                 //    Console.WriteLine(e);
                                 //}
 
-                                var msgEntity = (MsgThreadEntity)context.Items["MsgThreadEntity"];
-
+                                var msgThreadEntity = (MsgThreadEntity)context.Items["MsgThreadEntity"];
 
                                 if (isStream)
                                 {
@@ -490,7 +485,9 @@ namespace Onllama.MondrianGateway
                                         context.Response.Headers.Connection = "keep-alive";
 
                                         using var httpClient = new HttpClient();
-                                        var apiUrl = TargetApiUrl + "/v1/chat/completions";
+                                        var apiUrl = TargetApiUrl + context.Request.PathBase + context.Request.Path;
+
+
                                         var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
 
                                         request.Headers.Clear();
@@ -513,10 +510,10 @@ namespace Onllama.MondrianGateway
                                             context.Response.StatusCode = (int) response.StatusCode;
                                             var msg = await response.Content.ReadAsStringAsync();
                                             await context.Response.WriteAsync(msg);
-                                            msgEntity.Output = msg;
-                                            msgEntity.FinishReason = "error";
+                                            msgThreadEntity.Output = msg;
+                                            msgThreadEntity.FinishReason = "error:" + response.StatusCode;
 
-                                            MyMsgContext.MsgThreadEntities.Update(msgEntity);
+                                            MyMsgContext.MsgThreadEntities.Update(msgThreadEntity);
                                             await MyMsgContext.SaveChangesAsync();
 
                                             Console.WriteLine(msg);
@@ -564,12 +561,12 @@ namespace Onllama.MondrianGateway
                                                             try
                                                             {
                                                                 Console.WriteLine("___________");
-                                                                msgEntity.Output = deltaRole + ":" + deltas;
-                                                                msgEntity.PromptDuration = 0;
-                                                                msgEntity.EvalDuration = msgEntity.EndTime - msgEntity.StartTime;
-                                                                msgEntity.LoadDuration = msgEntity.StartTime - msgEntity.ReqTime;
-                                                                msgEntity.Time = DateTime.Now;
-                                                                Console.WriteLine(JsonConvert.SerializeObject(msgEntity));
+                                                                msgThreadEntity.Output = deltaRole + ":" + deltas;
+                                                                msgThreadEntity.PromptDuration = 0;
+                                                                msgThreadEntity.EvalDuration = msgThreadEntity.EndTime - msgThreadEntity.StartTime;
+                                                                msgThreadEntity.LoadDuration = msgThreadEntity.StartTime - msgThreadEntity.ReqTime;
+                                                                msgThreadEntity.Time = DateTime.Now;
+                                                                Console.WriteLine(JsonConvert.SerializeObject(msgThreadEntity));
                                                             }
                                                             catch (Exception e)
                                                             {
@@ -581,7 +578,7 @@ namespace Onllama.MondrianGateway
                                                             try
                                                             {
                                                                 var json = JObject.Parse(jsonData);
-                                                                if (string.IsNullOrEmpty(deltas)) msgEntity.StartTime = GetCurrentTimeStamp();
+                                                                if (string.IsNullOrEmpty(deltas)) msgThreadEntity.StartTime = GetCurrentTimeStamp();
 
                                                                 if (json.ContainsKey("tool_calls") && json["tool_calls"]!.Any())
                                                                 {
@@ -606,19 +603,19 @@ namespace Onllama.MondrianGateway
 
                                                                         if (choice?["finish_reason"] != null)
                                                                         {
-                                                                            msgEntity.FinishReason = choice["finish_reason"]?.ToString();
-                                                                            msgEntity.EndTime = GetCurrentTimeStamp();
+                                                                            msgThreadEntity.FinishReason = choice["finish_reason"]?.ToString();
+                                                                            msgThreadEntity.EndTime = GetCurrentTimeStamp();
                                                                         }
                                                                     }
                                                                 }
 
                                                                 if (json.TryGetValue("usage", out var usage))
                                                                 {
-                                                                    msgEntity.InputTokens = usage["prompt_tokens"]
+                                                                    msgThreadEntity.InputTokens = usage["prompt_tokens"]
                                                                         ?.ToObject<int>();
-                                                                    msgEntity.OutputTokens = usage["completion_tokens"]
+                                                                    msgThreadEntity.OutputTokens = usage["completion_tokens"]
                                                                         ?.ToObject<int>();
-                                                                    msgEntity.TotalTokens = usage["total_tokens"]
+                                                                    msgThreadEntity.TotalTokens = usage["total_tokens"]
                                                                         ?.ToObject<int>();
                                                                 }
                                                             }
@@ -644,7 +641,7 @@ namespace Onllama.MondrianGateway
                                             }
                                         }
 
-                                        MyMsgContext.MsgThreadEntities.Update(msgEntity);
+                                        MyMsgContext.MsgThreadEntities.Update(msgThreadEntity);
                                         await MyMsgContext.SaveChangesAsync();
                                     }
                                     catch (Exception e)
@@ -656,14 +653,51 @@ namespace Onllama.MondrianGateway
                                 }
                                 else
                                 {
-                                    var response = await context
-                                        .ForwardTo(new Uri(TargetApiUrl + "/v1/chat/completions")).Send();
+                                    var response = await context.ForwardTo(new Uri(TargetApiUrl)).Send();
                                     response.Headers.Add("X-Forwarder-By", "MondrianGateway/0.1");
-                                    await context.Response.WriteAsync(await response.Content.ReadAsStringAsync());
+                                    context.Response.StatusCode = (int)response.StatusCode;
 
-                                    var statusCode = Convert.ToInt32(response.StatusCode);
+                                    var resBody = await response.Content.ReadAsStringAsync();
+                                    await context.Response.WriteAsync(resBody);
+
+                                    try
+                                    {
+                                        var json = JObject.Parse(resBody);
+                                        if (json.TryGetValue("usage", out var usage))
+                                        {
+                                            msgThreadEntity.InputTokens = usage["prompt_tokens"]
+                                                ?.ToObject<int>();
+                                            msgThreadEntity.OutputTokens = usage["completion_tokens"]
+                                                ?.ToObject<int>();
+                                            msgThreadEntity.TotalTokens = usage["total_tokens"]
+                                                ?.ToObject<int>();
+                                        }
+
+                                        if (json.TryGetValue("choices", out var choices))
+                                        {
+                                            var choice = choices.FirstOrDefault();
+                                            msgThreadEntity.FinishReason = choice["finish_reason"]?.ToString();
+                                            msgThreadEntity.Output = choice["message"]?["role"] + ":" +
+                                                                     choice["message"]?["content"];
+                                        }
+                                    }
+                                    catch (Exception e)
+                                    {
+                                        Console.WriteLine(e);
+                                    }
+
+                                    msgThreadEntity.FinishReason = "success";
+                                    msgThreadEntity.StartTime = msgThreadEntity.ReqTime;
+                                    msgThreadEntity.EndTime = GetCurrentTimeStamp();
+                                    msgThreadEntity.LoadDuration = 0;
+                                    msgThreadEntity.PromptDuration = 0;
+                                    msgThreadEntity.EvalDuration = msgThreadEntity.EndTime - msgThreadEntity.ReqTime;
+
+                                    MyMsgContext.MsgThreadEntities.Update(msgThreadEntity);
+                                    await MyMsgContext.SaveChangesAsync();
+
                                     if (UseTokenReplace && ReplaceTokenMode == "failback" && ReplaceTokensList.Any() &&
-                                        statusCode is >= 400 and < 500)
+                                        context.Response.StatusCode is >= 400 and < 500)
                                     {
                                         ReplaceTokensList.Add(ReplaceTokensList.First());
                                         ReplaceTokensList.RemoveAt(0);
