@@ -53,7 +53,7 @@ namespace Onllama.MondrianGateway
 
         public static OllamaApiClient OllamaApi = new OllamaApiClient(new Uri(ActionApiUrl));
 
-        public static Dictionary<HashSet<string>, List<Message>> HashsDictionary = new();
+        //public static Dictionary<HashSet<string>, List<Message>> HashsDictionary = new();
         public static FastCache<Guid, string> MsgThreads = new FastCache<Guid, string>();
 
         public static MsgContext MyMsgContext = new MsgContext();
@@ -166,70 +166,6 @@ namespace Onllama.MondrianGateway
 
                         app.Use(async (context, next) =>
                         {
-                            try
-                            {
-                                var roundId = context.Request.Headers.TryGetValue("round_id", out var roundFromHeader)
-                                    ? roundFromHeader.ToString()
-                                    : string.Empty;
-                                var strBody = await new StreamReader(context.Request.Body).ReadToEndAsync();
-                                var jBody = new JObject();
-
-                                if (context.Request.Method.ToUpper() == "POST")
-                                    try
-                                    {
-                                        jBody = JObject.Parse(strBody);
-
-                                        if (jBody.ContainsKey("model") && UseModelReplace &&
-                                            ModelReplaceDictionary.TryGetValue(jBody["model"]?.ToString()!, out var newModel))
-                                            jBody["model"] = newModel;
-
-                                        roundId = jBody.TryGetValue("round_id", out var roundFromBody)
-                                            ? roundFromBody.ToString()
-                                            : roundId;
-                                        if (!string.IsNullOrEmpty(roundId)) jBody.Remove("round_id");
-
-                                        context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(jBody.ToString()));
-                                        context.Request.ContentLength = context.Request.Body.Length;
-                                    }
-                                    catch (Exception e)
-                                    {
-                                        Console.WriteLine(e);
-                                    }
-                                else
-                                {
-                                    context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(strBody));
-                                    context.Request.ContentLength = context.Request.Body.Length;
-                                }
-
-                                var requestObj = new MsgRequestIdObj()
-                                    {
-                                        Id = Ulid.NewUlid().ToGuid().ToString(),
-                                        RoundId = roundId,
-                                        Body = strBody,
-                                        Path = context.Request.PathBase.ToString() + context.Request.Path.ToString(),
-                                        Method = context.Request.Method,
-                                        Header = JsonConvert.SerializeObject(context.Request.Headers),
-                                        UserAgent = context.Request.Headers["User-Agent"].ToString(),
-                                        IP = context.Connection.RemoteIpAddress?.ToString()
-                                    };
-
-                                MyMsgContext.MsgRequestIdObjs.Add(requestObj);
-                                context.Items["RequestObj"] = requestObj;
-                                context.Items["JBody"] = jBody;
-                                await MyMsgContext.SaveChangesAsync();
-
-                                context.Request.Body.Position = 0;
-                            }
-                            catch (Exception e)
-                            {
-                                Console.WriteLine(e);
-                            }
-
-                            await next(context);
-                        });
-
-                        app.Use(async (context, next) =>
-                        {
                             var reqToken = context.Request.Headers.ContainsKey("Authorization")
                                 ? context.Request.Headers.Authorization.ToString().Split(' ').Last().ToString()
                                 : string.Empty;
@@ -237,7 +173,7 @@ namespace Onllama.MondrianGateway
                             if (UseToken && !TokensList.Contains(reqToken))
                             {
                                 context.Response.Headers.ContentType = "application/json";
-                                context.Response.StatusCode = (int) HttpStatusCode.Forbidden;
+                                context.Response.StatusCode = (int)HttpStatusCode.Forbidden;
                                 await context.Response.WriteAsync(new JObject()
                                 {
                                     {
@@ -257,6 +193,218 @@ namespace Onllama.MondrianGateway
                                 context.Items["Token"] = reqToken;
                                 await next.Invoke();
                             }
+                        });
+
+                        app.Use(async (context, next) =>
+                        {
+                            try
+                            {
+                                var hashesId = string.Empty;
+                                var msgThreadId = Ulid.NewUlid().ToGuid();
+                                var roundId = context.Request.Headers.TryGetValue("round_id", out var roundFromHeader)
+                                    ? roundFromHeader.ToString()
+                                    : string.Empty;
+
+                                var strBody = await new StreamReader(context.Request.Body).ReadToEndAsync();
+                                var jBody = new JObject();
+
+                                if (context.Request.Method.ToUpper() == "POST")
+                                    try
+                                    {
+                                        jBody = JObject.Parse(strBody);
+
+                                        if (jBody.ContainsKey("model") && UseModelReplace &&
+                                            ModelReplaceDictionary.TryGetValue(jBody["model"]?.ToString()!,
+                                                out var newModel))
+                                            jBody["model"] = newModel;
+
+                                        if (context.Request.PathBase.ToString().Contains("v1") ||
+                                            context.Request.Path.ToString().Contains("v1")) 
+                                            jBody["stream_options"] = new JObject() {["include_usage"] = true};
+
+                                        roundId = jBody.TryGetValue("round_id", out var roundFromBody)
+                                            ? roundFromBody.ToString()
+                                            : roundId;
+                                        if (!string.IsNullOrEmpty(roundId)) jBody.Remove("round_id");
+
+                                        if (jBody.ContainsKey("messages"))
+                                        {
+                                            var msgs = jBody["messages"]?.ToObject<List<Message>>();
+                                            if (msgs != null && msgs.Any())
+                                            {
+                                                var lastMsg = msgs.Last();
+                                                var inputMsg = lastMsg.Role + ":" + lastMsg.Content;
+
+                                                if (true)
+                                                {
+                                                    var fnv = FNV1a.Create();
+                                                    var hashes = new HashSet<string>();
+                                                    foreach (var item in msgs.Where(item =>
+                                                                 item.Role?.ToUpper() != "SYSTEM"))
+                                                    {
+                                                        hashes.Add(Convert
+                                                            .ToBase64String(
+                                                                fnv.ComputeHash(Encoding.UTF8.GetBytes(item.Content)))
+                                                            .TrimEnd('='));
+                                                    }
+
+                                                    hashesId = string.Join(',', hashes.ToList());
+
+                                                    if (!MyMsgContext.RequestHashesObjs.Any(x => x.Hashes == hashesId))
+                                                    {
+                                                        MyMsgContext.RequestHashesObjs.Add(new RequestHashesObj()
+                                                        {
+                                                            Hashes = hashesId,
+                                                            RoundId = roundId,
+                                                            Input = jBody.ToString(),
+                                                        });
+                                                    }
+
+                                                    if (MsgThreads.Any(x => hashesId.StartsWith(x.Value)))
+                                                        msgThreadId = MsgThreads
+                                                            .FirstOrDefault(x => hashesId.StartsWith(x.Value)).Key;
+
+                                                    MsgThreads.AddOrUpdate(msgThreadId, hashesId, TimeSpan.FromMinutes(15));
+
+                                                    var msgThreadEntity = new MsgThreadEntity()
+                                                    {
+                                                        ReqTime = GetCurrentTimeStamp(),
+                                                        Hashes = hashesId,
+                                                        Input = inputMsg,
+                                                        Body = jBody.ToString(),
+                                                        Id = msgThreadId.ToString(),
+                                                    };
+                                                    if (!MyMsgContext.MsgThreadEntities.Any(x => x.Id == msgThreadId.ToString()))
+                                                    {
+                                                        Console.BackgroundColor = ConsoleColor.Blue;
+                                                        Console.WriteLine("Add");
+                                                        Console.ResetColor();
+                                                        MyMsgContext.MsgThreadEntities.Add(msgThreadEntity);
+                                                    }
+                                                    else
+                                                    {
+                                                        Console.BackgroundColor = ConsoleColor.Blue;
+                                                        Console.WriteLine("Update");
+                                                        Console.ResetColor();
+
+                                                        msgThreadEntity = MyMsgContext.MsgThreadEntities.FirstOrDefault(x =>
+                                                            x.Id == msgThreadId.ToString());
+                                                        msgThreadEntity.ReqTime = GetCurrentTimeStamp();
+                                                        msgThreadEntity.Input = inputMsg;
+                                                        msgThreadEntity.Output = string.Empty;
+                                                        msgThreadEntity.Body = jBody.ToString();
+                                                        msgThreadEntity.Hashes = hashesId;
+                                                        MyMsgContext.MsgThreadEntities.Update(msgThreadEntity);
+                                                    }
+
+                                                    context.Items["MsgThreadEntity"] = msgThreadEntity;
+                                                }
+
+                                                if (UseSystemPromptTrim)
+                                                {
+                                                    msgs.RemoveAll(x => string.Equals(x.Role,
+                                                        ChatRole.System.ToString(),
+                                                        StringComparison.CurrentCultureIgnoreCase));
+                                                    jBody["messages"] = JArray.FromObject(msgs);
+                                                }
+
+                                                if (UseSystemPromptInject && !string.IsNullOrWhiteSpace(SystemPrompt))
+                                                {
+                                                    msgs.Insert(0,
+                                                        new Message
+                                                        {
+                                                            Role = ChatRole.System.ToString(),
+                                                            Content = SystemPrompt
+                                                        });
+                                                    jBody["messages"] = JArray.FromObject(msgs);
+                                                    Console.WriteLine(jBody.ToString());
+                                                }
+                                            }
+                                        }
+
+                                        context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(jBody.ToString()));
+                                    }
+                                    catch (Exception e)
+                                    {
+                                        Console.WriteLine(e);
+                                    }
+                                else
+                                {
+                                    context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(strBody));
+                                }
+
+                                var requestObj = new MsgRequestIdObj()
+                                {
+                                    Id = Ulid.NewUlid().ToGuid().ToString(),
+                                    RoundId = roundId,
+                                    Body = strBody,
+                                    Path = context.Request.PathBase.ToString() + context.Request.Path.ToString(),
+                                    Method = context.Request.Method,
+                                    Header = JsonConvert.SerializeObject(context.Request.Headers),
+                                    UserAgent = context.Request.Headers["User-Agent"].ToString(),
+                                    IP = context.Connection.RemoteIpAddress?.ToString(),
+                                    Hashes = hashesId,
+                                };
+                                MyMsgContext.MsgRequestIdObjs.Add(requestObj);
+
+                                context.Items["RequestObj"] = requestObj;
+                                context.Items["JBody"] = jBody;
+                                await MyMsgContext.SaveChangesAsync();
+
+                                context.Request.ContentLength = context.Request.Body.Length;
+                                context.Request.Body.Position = 0;
+                            }
+                            catch (Exception e)
+                            {
+                                Console.WriteLine(e);
+                            }
+
+                            await next(context);
+                        });
+
+                        app.Use(async (context, next) =>
+                        {
+                            if (UseRiskModel && context.Request.Method == "POST" &&
+                                context.Items.TryGetValue("JBody", out var jBodyObj) &&
+                                jBodyObj is JObject jBody)
+                            {
+                                var msgs = jBody["messages"]?.ToObject<List<Message>>();
+
+                                await foreach (var res in OllamaApi.ChatAsync(new ChatRequest()
+                                               {
+                                                   Model = RiskModel,
+                                                   Messages = msgs.Select(x =>
+                                                       new OllamaSharp.Models.Chat.Message(x.Role, x.Content)),
+                                                   Stream = false
+                                               }))
+                                {
+                                    var risks = res?.Message.Content;
+                                    Console.WriteLine(risks);
+                                    if (risks != null &&
+                                        RiskKeywordsList.Any(x =>
+                                            risks.ToUpper().Contains(x.ToUpper())))
+                                    {
+                                        context.Response.WriteAsync(new JObject
+                                        {
+                                            {
+                                                "error",
+                                                new JObject
+                                                {
+                                                    {
+                                                        "message",
+                                                        "Messages with content security risks. Unable to continue."
+                                                    },
+                                                    {"type", "content_risks"},
+                                                    {"risk_model", res?.Model},
+                                                    {"risk_raw_msg", res?.Message.Content}
+                                                }
+                                            }
+                                        }.ToString());
+                                    }
+                                }
+                            }
+
+                            await next(context);
                         });
 
                         app.Use(async (context, next) =>
@@ -305,151 +453,32 @@ namespace Onllama.MondrianGateway
                         {
                             endpoint.Map("/v1/chat/completions", async context =>
                             {
-                                var msgThreadId = Ulid.NewUlid().ToGuid();
-                                var hashesId = string.Empty;
-                                var inputMsg = string.Empty;
-                                var body = await new StreamReader(context.Request.Body).ReadToEndAsync();
-                                var jBody = JObject.Parse(body);
+                                if (context.Request.Method != "POST")
+                                {
+                                    
+                                }
+                                var jBody = (JObject) context.Items["JBody"]!;
                                 var isStream = jBody.ContainsKey("stream") && jBody["stream"]!.ToObject<bool>();
-                                var roundId = jBody.TryGetValue("round_id", out var roundFromBody)
-                                    ? roundFromBody.ToString()
-                                    : context.Request.Headers.TryGetValue("round_id", out var roundFromHeader)
-                                        ? roundFromHeader.ToString()
-                                        : null;
-
-                                jBody["stream_options"] = new JObject() {["include_usage"] = true};
 
                                 Console.WriteLine("CHAT:" + jBody);
 
-                                if (roundId != null)
-                                {
-                                    try
-                                    {
-                                        jBody.Remove("round_id");
-                                    }
-                                    catch (Exception e)
-                                    {
-                                        Console.WriteLine(e);
-                                    }
-                                }
+                                //try
+                                //{
+                                //    if (context.Items.TryGetValue("RequestObj", out var rObj) &&
+                                //        rObj is MsgRequestIdObj requestObj)
+                                //    {
+                                //        requestObj.Hashes = hashesId;
+                                //        MyMsgContext.MsgRequestIdObjs.Update(requestObj);
+                                //        await MyMsgContext.SaveChangesAsync();
+                                //    }
+                                //}
+                                //catch (Exception e)
+                                //{
+                                //    Console.WriteLine(e);
+                                //}
 
-                                if (jBody.ContainsKey("messages"))
-                                {
-                                    var msgs = jBody["messages"]?.ToObject<List<Message>>();
-                                    if (msgs != null && msgs.Any())
-                                    {
-                                        var lastMsg = msgs.Last();
-                                        inputMsg = lastMsg.Role + ":" + lastMsg.Content;
-                                        if (true)
-                                        {
-                                            var fnv = FNV1a.Create();
-                                            var hashes = new HashSet<string>();
-                                            foreach (var item in msgs.Where(item => item.Role?.ToUpper() != "SYSTEM"))
-                                            {
-                                                hashes.Add(Convert
-                                                    .ToBase64String(
-                                                        fnv.ComputeHash(Encoding.UTF8.GetBytes(item.Content)))
-                                                    .TrimEnd('='));
-                                            }
+                                var msgEntity = (MsgThreadEntity)context.Items["MsgThreadEntity"];
 
-                                            hashesId = string.Join(',', hashes.ToList());
-                                            
-                                            //RedisDatabase.JSON().Set("MSG-HASH:" + hashesId, "$", body);
-                                            if (!MyMsgContext.RequestHashesObjs.Any(x => x.Hashes == hashesId))
-                                            {
-                                                MyMsgContext.RequestHashesObjs.Add(new RequestHashesObj()
-                                                {
-                                                    Hashes = hashesId,
-                                                    RoundId = roundId,
-                                                    Input = jBody.ToString(),
-                                                });
-                                            }
-
-                                            if (MsgThreads.Any(x => hashesId.StartsWith(x.Value)))
-                                                msgThreadId = MsgThreads.FirstOrDefault(x => hashesId.StartsWith(x.Value)).Key;
-
-                                            MsgThreads.AddOrUpdate(msgThreadId, hashesId, TimeSpan.FromMinutes(15));
-
-                                            //Console.WriteLine(string.Join(',',
-                                            //    HashsDictionary.Keys.LastOrDefault(x =>
-                                            //        x.Count <= hashs.Count && x.IsSubsetOf(hashs)) ?? ["NF"]));
-
-                                            HashsDictionary.Add(hashes, msgs);
-                                        }
-
-                                        if (UseSystemPromptTrim)
-                                        {
-                                            msgs.RemoveAll(x => string.Equals(x.Role, ChatRole.System.ToString(),
-                                                StringComparison.CurrentCultureIgnoreCase));
-                                            jBody["messages"] = JArray.FromObject(msgs);
-                                        }
-
-                                        if (UseSystemPromptInject && !string.IsNullOrWhiteSpace(SystemPrompt))
-                                        {
-                                            msgs.Insert(0,
-                                                new Message
-                                                {
-                                                    Role = ChatRole.System.ToString(), Content = SystemPrompt
-                                                });
-                                            jBody["messages"] = JArray.FromObject(msgs);
-                                            Console.WriteLine(jBody.ToString());
-                                        }
-
-                                        if (UseRiskModel)
-                                        {
-                                            await foreach (var res in OllamaApi.ChatAsync(new ChatRequest()
-                                                           {
-                                                               Model = RiskModel,
-                                                               Messages = msgs.Select(x =>
-                                                                   new OllamaSharp.Models.Chat.Message(x.Role,
-                                                                       x.Content)),
-                                                               Stream = false
-                                                           }))
-                                            {
-                                                var risks = res?.Message.Content;
-                                                Console.WriteLine(risks);
-                                                if (risks != null &&
-                                                    RiskKeywordsList.Any(x => risks.ToUpper().Contains(x.ToUpper())))
-                                                {
-                                                    context.Response.WriteAsync(new JObject
-                                                    {
-                                                        {
-                                                            "error",
-                                                            new JObject
-                                                            {
-                                                                {
-                                                                    "message",
-                                                                    "Messages with content security risks. Unable to continue."
-                                                                },
-                                                                {"type", "content_risks"}, {"risk_model", res?.Model},
-                                                                {"risk_raw_msg", res?.Message.Content}
-                                                            }
-                                                        }
-                                                    }.ToString());
-                                                }
-                                            }
-
-                                        }
-                                    }
-                                }
-
-                                try
-                                {
-                                    if (context.Items.TryGetValue("RequestObj", out var rObj) &&
-                                        rObj is MsgRequestIdObj requestObj)
-                                    {
-                                        requestObj.Hashes = hashesId;
-                                        MyMsgContext.MsgRequestIdObjs.Update(requestObj);
-                                        await MyMsgContext.SaveChangesAsync();
-                                    }
-                                }
-                                catch (Exception e)
-                                {
-                                    Console.WriteLine(e);
-                                }
-
-                                context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(jBody.ToString()));
-                                context.Request.ContentLength = context.Request.Body.Length;
 
                                 if (isStream)
                                 {
@@ -484,6 +513,12 @@ namespace Onllama.MondrianGateway
                                             context.Response.StatusCode = (int) response.StatusCode;
                                             var msg = await response.Content.ReadAsStringAsync();
                                             await context.Response.WriteAsync(msg);
+                                            msgEntity.Output = msg;
+                                            msgEntity.FinishReason = "error";
+
+                                            MyMsgContext.MsgThreadEntities.Update(msgEntity);
+                                            await MyMsgContext.SaveChangesAsync();
+
                                             Console.WriteLine(msg);
                                             return;
                                         }
@@ -497,15 +532,6 @@ namespace Onllama.MondrianGateway
                                         var sb = new StringBuilder();
                                         var lines = new List<string>();
 
-                                        var msgEntity = new MsgThreadEntity()
-                                        {
-                                            ReqTime = GetCurrentTimeStamp(), 
-                                            Time = DateTime.Now,
-                                            Hashes = hashesId,
-                                            Input = inputMsg,
-                                            Body = jBody.ToString(),
-                                            Id = msgThreadId.ToString(),
-                                        };
                                         var deltas = "";
                                         var deltaRole = "";
 
@@ -555,8 +581,7 @@ namespace Onllama.MondrianGateway
                                                             try
                                                             {
                                                                 var json = JObject.Parse(jsonData);
-                                                                if (string.IsNullOrEmpty(deltas))
-                                                                    msgEntity.StartTime = json["created"]!.ToObject<long>();
+                                                                if (string.IsNullOrEmpty(deltas)) msgEntity.StartTime = GetCurrentTimeStamp();
 
                                                                 if (json.ContainsKey("tool_calls") && json["tool_calls"]!.Any())
                                                                 {
@@ -579,13 +604,10 @@ namespace Onllama.MondrianGateway
                                                                         if (delta?["content"] != null)
                                                                             deltas += delta["content"]?.ToString();
 
-
                                                                         if (choice?["finish_reason"] != null)
                                                                         {
-                                                                            msgEntity.FinishReason =
-                                                                                choice["finish_reason"]?.ToString();
-                                                                            msgEntity.EndTime =
-                                                                                json["created"]!.ToObject<long>();
+                                                                            msgEntity.FinishReason = choice["finish_reason"]?.ToString();
+                                                                            msgEntity.EndTime = GetCurrentTimeStamp();
                                                                         }
                                                                     }
                                                                 }
@@ -622,40 +644,8 @@ namespace Onllama.MondrianGateway
                                             }
                                         }
 
-                                        if (!MyMsgContext.MsgThreadEntities.Any(x => x.Id == msgEntity.Id))
-                                        {
-                                            Console.BackgroundColor = ConsoleColor.Blue;
-                                            Console.WriteLine("Add");
-                                            Console.ResetColor();
-                                            MyMsgContext.MsgThreadEntities.Add(msgEntity);
-                                        }
-                                        else
-                                        {
-                                            Console.BackgroundColor = ConsoleColor.Blue;
-                                            Console.WriteLine("Update");
-                                            Console.ResetColor();
-
-                                            var msgEntityGet = MyMsgContext.MsgThreadEntities.FirstOrDefault(x =>
-                                                x.Id == msgEntity.Id);
-                                            msgEntityGet.ReqTime = msgEntity.ReqTime;
-                                            msgEntityGet.Input = msgEntity.Input;
-                                            msgEntityGet.Body = msgEntity.Body;
-                                            msgEntityGet.Hashes = msgEntity.Hashes;
-                                            msgEntityGet.InputTokens = msgEntity.InputTokens;
-                                            msgEntityGet.OutputTokens = msgEntity.OutputTokens;
-                                            msgEntityGet.TotalTokens = msgEntity.TotalTokens;
-                                            msgEntityGet.Output = msgEntity.Output;
-                                            msgEntityGet.StartTime = msgEntity.StartTime;
-                                            msgEntityGet.EndTime = msgEntity.EndTime;
-                                            msgEntityGet.LoadDuration = msgEntity.LoadDuration;
-                                            msgEntityGet.PromptDuration = msgEntity.PromptDuration;
-                                            msgEntityGet.EvalDuration = msgEntity.EvalDuration;
-                                            msgEntityGet.FinishReason = msgEntity.FinishReason;
-                                            MyMsgContext.MsgThreadEntities.Update(msgEntityGet);
-                                        }
-
+                                        MyMsgContext.MsgThreadEntities.Update(msgEntity);
                                         await MyMsgContext.SaveChangesAsync();
-
                                     }
                                     catch (Exception e)
                                     {

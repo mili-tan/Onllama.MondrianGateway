@@ -36,7 +36,7 @@ namespace Onllama.MondrianGateway
         [DisplayName("输出 Token")] public int? OutputTokens { get; set; }
         [DisplayName("输出 Token")] public int? TotalTokens { get; set; }
 
-        [DisplayName("创建时间")] public DateTime? Time { get; set; }
+        [DisplayName("创建时间")] public DateTime? Time { get; set; } = DateTime.Now;
         [DisplayName("请求时间")] public long? ReqTime { get; set; }
         [DisplayName("开始时间")] public long? StartTime { get; set; }
         [DisplayName("结束时间")] public long? EndTime { get; set; }
