@@ -428,25 +428,7 @@ namespace Onllama.MondrianGateway
                         });
 
                         foreach (var path in NonChatApiPathList)
-                            app.Map(path, svr =>
-                            {
-                                svr.RunProxy(async context =>
-                                {
-                                    var response = new HttpResponseMessage();
-                                    try
-                                    {
-                                        response = await context.ForwardTo(new Uri(TargetApiUrl + path)).Send();
-                                        response.Headers.Add("X-Forwarder-By", "MondrianGateway/0.1");
-
-                                        return response;
-                                    }
-                                    catch (Exception e)
-                                    {
-                                        Console.WriteLine(e);
-                                        return response;
-                                    }
-                                });
-                            });
+                            app.Map(path, svr => HandleNonChatApi(svr));
 
                         app.UseRouting().UseEndpoints(endpoint =>
                         {
@@ -555,10 +537,10 @@ namespace Onllama.MondrianGateway
                                                 {
                                                     if (line.StartsWith("data: "))
                                                     {
-                                                        var jsonData = line.Substring(6);
-                                                        if (jsonData == "[DONE]")
+                                                        try
                                                         {
-                                                            try
+                                                            var jsonStr = line.Substring(6);
+                                                            if (jsonStr == "[DONE]")
                                                             {
                                                                 Console.WriteLine("___________");
                                                                 msgThreadEntity.Output = deltaRole + ":" + deltas;
@@ -568,16 +550,9 @@ namespace Onllama.MondrianGateway
                                                                 msgThreadEntity.Time = DateTime.Now;
                                                                 Console.WriteLine(JsonConvert.SerializeObject(msgThreadEntity));
                                                             }
-                                                            catch (Exception e)
+                                                            else
                                                             {
-                                                                Console.WriteLine(e);
-                                                            }
-                                                        }
-                                                        else
-                                                        {
-                                                            try
-                                                            {
-                                                                var json = JObject.Parse(jsonData);
+                                                                var json = JObject.Parse(jsonStr);
                                                                 if (string.IsNullOrEmpty(deltas)) msgThreadEntity.StartTime = GetCurrentTimeStamp();
 
                                                                 if (json.ContainsKey("tool_calls") && json["tool_calls"]!.Any())
@@ -619,10 +594,10 @@ namespace Onllama.MondrianGateway
                                                                         ?.ToObject<int>();
                                                                 }
                                                             }
-                                                            catch (Exception e)
-                                                            {
-                                                                Console.WriteLine(e);
-                                                            }
+                                                        }
+                                                        catch (Exception e)
+                                                        {
+                                                            Console.WriteLine(e);
                                                         }
                                                     }
                                                 }
@@ -710,7 +685,7 @@ namespace Onllama.MondrianGateway
                                 }
                             });
                         });
-                        app.Map("/v1", HandleOpenaiStyleChat);
+                        app.Map("/v1", svr => HandleNonChatApi(svr, "/v1"));
 
                     }).Build();
 
@@ -722,24 +697,22 @@ namespace Onllama.MondrianGateway
             }
         }
 
-        private static void HandleOpenaiStyleChat(IApplicationBuilder svr)
+        private static void HandleNonChatApi(IApplicationBuilder svr, string path = "")
         {
             svr.RunProxy(async context =>
             {
                 HttpResponseMessage response;
                 try
                 {
-                    response = await context.ForwardTo(new Uri(TargetApiUrl + "/v1")).Send();
+                    response = await context.ForwardTo(new Uri(TargetApiUrl + context.Request.PathBase + context.Request.Path)).Send();
                     response.Headers.Add("X-Forwarder-By", "MondrianGateway/0.1");
-
                     Console.WriteLine(await response.Content.ReadAsStringAsync());
-
                     return response;
                 }
                 catch (Exception e)
                 {
                     Console.WriteLine(e);
-                    response = await context.ForwardTo(new Uri(TargetApiUrl + "/v1")).Send();
+                    response = await context.ForwardTo(new Uri(TargetApiUrl + path)).Send();
                     return response;
                 }
             });
