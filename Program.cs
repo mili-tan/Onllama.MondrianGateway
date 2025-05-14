@@ -672,7 +672,6 @@ namespace Onllama.MondrianGateway
                                             msgThreadEntity.TotalTokens = usage["total_tokens"]
                                                 ?.ToObject<int>();
                                         }
-
                                         if (json.TryGetValue("choices", out var choices))
                                         {
                                             var choice = choices.FirstOrDefault();
@@ -680,9 +679,16 @@ namespace Onllama.MondrianGateway
                                             msgThreadEntity.Output = choice["message"]?["role"] + ":" +
                                                                      choice["message"]?["content"];
                                         }
+                                        else
+                                        {
+                                            msgThreadEntity.FinishReason = "error:" + response.StatusCode;
+                                            msgThreadEntity.Output = resBody;
+                                        }
                                     }
                                     catch (Exception e)
                                     {
+                                        msgThreadEntity.FinishReason = "error:" + response.StatusCode;
+                                        msgThreadEntity.Output = resBody;
                                         Console.WriteLine(e);
                                     }
 
