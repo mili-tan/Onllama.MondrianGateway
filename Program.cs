@@ -428,7 +428,7 @@ namespace Onllama.MondrianGateway
                         });
 
                         foreach (var path in NonChatApiPathList)
-                            app.Map(path, svr => HandleNonChatApi(svr));
+                            app.Map(path, svr => HandleNonChatApi(svr, path));
 
                         app.UseRouting().UseEndpoints(endpoint =>
                         {
@@ -704,7 +704,7 @@ namespace Onllama.MondrianGateway
                 HttpResponseMessage response;
                 try
                 {
-                    response = await context.ForwardTo(new Uri(TargetApiUrl + context.Request.PathBase + context.Request.Path)).Send();
+                    response = await context.ForwardTo(new Uri(TargetApiUrl + path)).Send();
                     response.Headers.Add("X-Forwarder-By", "MondrianGateway/0.1");
                     Console.WriteLine(await response.Content.ReadAsStringAsync());
                     return response;
@@ -712,7 +712,7 @@ namespace Onllama.MondrianGateway
                 catch (Exception e)
                 {
                     Console.WriteLine(e);
-                    response = await context.ForwardTo(new Uri(TargetApiUrl + path)).Send();
+                    response = await context.ForwardTo(new Uri(TargetApiUrl + context.Request.PathBase + context.Request.Path)).Send();
                     return response;
                 }
             });
