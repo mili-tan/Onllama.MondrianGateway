@@ -686,7 +686,6 @@ namespace Onllama.MondrianGateway
                                         Console.WriteLine(e);
                                     }
 
-                                    msgThreadEntity.FinishReason = "success";
                                     msgThreadEntity.StartTime = msgThreadEntity.ReqTime;
                                     msgThreadEntity.EndTime = GetCurrentTimeStamp();
                                     msgThreadEntity.LoadDuration = 0;
