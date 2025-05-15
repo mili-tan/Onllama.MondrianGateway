@@ -237,7 +237,7 @@ namespace Onllama.MondrianGateway
                                                         hashes.Add(Convert
                                                             .ToBase64String(
                                                                 fnv.ComputeHash(Encoding.UTF8.GetBytes(item.Content)))
-                                                            .TrimEnd('='));
+                                                            .TrimEnd('=').Replace('+', '-').Replace('/', '_'));
                                                     }
 
                                                     hashesId = string.Join(',', hashes.ToList());
@@ -248,7 +248,8 @@ namespace Onllama.MondrianGateway
                                                         {
                                                             Hashes = hashesId,
                                                             RoundId = roundId,
-                                                            Input = jBody.ToString(),
+                                                            Body = jBody.ToString(),
+                                                            Input = inputMsg
                                                         });
                                                     }
 
