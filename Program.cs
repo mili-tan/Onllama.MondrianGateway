@@ -249,7 +249,6 @@ namespace Onllama.MondrianGateway
                                                             Hashes = hashesId,
                                                             RoundId = roundId,
                                                             Body = jBody.ToString(),
-                                                            Input = inputMsg
                                                         });
                                                     }
 
@@ -363,11 +362,12 @@ namespace Onllama.MondrianGateway
 
                         app.Use(async (context, next) =>
                         {
+                            var isRisk = false;
                             if (UseRiskModel && context.Request.Method == "POST" &&
                                 context.Items.TryGetValue("JBody", out var jBodyObj) &&
-                                jBodyObj is JObject jBody)
+                                jBodyObj is JObject jBody && jBody.TryGetValue("messages", out var msgObj))
                             {
-                                var msgs = jBody["messages"]?.ToObject<List<Message>>();
+                                var msgs = msgObj.ToObject<List<Message>>();
 
                                 await foreach (var res in OllamaApi.ChatAsync(new ChatRequest()
                                                {
@@ -378,25 +378,31 @@ namespace Onllama.MondrianGateway
                                                }))
                                 {
                                     var risks = res?.Message.Content;
-                                    Console.WriteLine(risks);
-                                    if (risks != null &&
-                                        RiskKeywordsList.Any(x => risks.ToUpper().Contains(x.ToUpper())))
+                                    if (risks != null && RiskKeywordsList.Any(x => risks.ToUpper().Contains(x.ToUpper())))
                                     {
-                                        if (UseLog)
-                                            try
+                                        isRisk = true;
+                                        try
+                                        {
+                                            if (UseLog)
                                             {
-                                                var msgThreadEntity = (MsgThreadEntity)context.Items["MsgThreadEntity"];
-                                                msgThreadEntity.FinishReason = "risk:" + risks;
+                                                var msgThreadEntity =
+                                                    (MsgThreadEntity) context.Items["MsgThreadEntity"];
+                                                msgThreadEntity.FinishReason =
+                                                    "risk:" + risks.Replace(" ", "_") + ":" + 451;
                                                 msgThreadEntity.EndTime = DateTime.UtcNow;
                                                 MyMsgContext.MsgThreadEntities.Update(msgThreadEntity);
                                                 await MyMsgContext.SaveChangesAsync();
                                             }
-                                            catch (Exception e)
-                                            {
-                                                Console.WriteLine(e);
-                                            }
 
-                                        context.Response.WriteAsync(new JObject
+                                            context.Response.Headers.ContentType = "application/json";
+                                            context.Response.StatusCode = 451;
+                                        }
+                                        catch (Exception e)
+                                        {
+                                            Console.WriteLine(e);
+                                        }
+
+                                        await context.Response.WriteAsync(new JObject
                                         {
                                             {
                                                 "error",
@@ -412,11 +418,12 @@ namespace Onllama.MondrianGateway
                                                 }
                                             }
                                         }.ToString());
+                                        return;
                                     }
                                 }
                             }
 
-                            await next(context);
+                            if (!isRisk) await next(context);
                         });
 
                         app.Use(async (context, next) =>
@@ -468,6 +475,9 @@ namespace Onllama.MondrianGateway
             var msgThreadEntity = context.Items.TryGetValue("MsgThreadEntity", out var entityObj)
                 ? (MsgThreadEntity) entityObj!
                 : new MsgThreadEntity();
+            var msgRequestObj = context.Items.TryGetValue("RequestObj", out var reqObj)
+                ? (MsgRequestIdObj) reqObj!
+                : new MsgRequestIdObj();
 
             Console.WriteLine(TargetApiUrl + context.Request.PathBase + context.Request.Path);
             Console.WriteLine("CHAT:" + jBody);
@@ -501,12 +511,19 @@ namespace Onllama.MondrianGateway
                         context.Response.StatusCode = (int) response.StatusCode;
                         var msg = await response.Content.ReadAsStringAsync();
                         await context.Response.WriteAsync(msg);
-                        msgThreadEntity.Output = msg;
-                        msgThreadEntity.FinishReason = "error:" + response.StatusCode;
 
                         if (UseLog)
                         {
+                            msgThreadEntity.EndTime = DateTime.UtcNow;
+                            msgThreadEntity.Output = msg;
+                            msgThreadEntity.FinishReason = "error:" + response.StatusCode;
+
+                            msgRequestObj.EndTime = DateTime.UtcNow;
+                            msgRequestObj.Output = msg;
+                            msgRequestObj.FinishReason = "error:" + response.StatusCode;
+
                             MyMsgContext.MsgThreadEntities.Update(msgThreadEntity);
+                            MyMsgContext.MsgRequestIdObjs.Update(msgRequestObj);
                             await MyMsgContext.SaveChangesAsync();
                         }
 
@@ -587,7 +604,7 @@ namespace Onllama.MondrianGateway
                                                 if (json?["done"]?.ToObject<bool>() ?? false)
                                                 {
                                                     msgThreadEntity.Output = deltaRole + ":" + deltas;
-                                                    msgThreadEntity.FinishReason = json["done_reason"]?.ToString();
+                                                    msgThreadEntity.FinishReason = json["done_reason"] + ":" + (int)response.StatusCode;
                                                     msgThreadEntity.InputTokens = json["prompt_eval_count"].ToObject<int>();
                                                     msgThreadEntity.OutputTokens = json["eval_count"].ToObject<int>();
                                                     msgThreadEntity.TotalTokens = msgThreadEntity.InputTokens + msgThreadEntity.OutputTokens;
@@ -608,7 +625,7 @@ namespace Onllama.MondrianGateway
 
                                                     if (choice?["finish_reason"] != null)
                                                     {
-                                                        msgThreadEntity.FinishReason = choice["finish_reason"]?.ToString();
+                                                        msgThreadEntity.FinishReason = choice["finish_reason"] + ":" + (int)response.StatusCode;
                                                         msgThreadEntity.EndTime = DateTime.UtcNow;
                                                     }
                                                 }
@@ -646,6 +663,20 @@ namespace Onllama.MondrianGateway
 
                     if (UseLog)
                     {
+                        msgRequestObj.StartTime = msgThreadEntity.StartTime;
+                        msgRequestObj.EndTime = msgThreadEntity.EndTime;
+                        msgRequestObj.InputTokens = msgThreadEntity.InputTokens;
+                        msgRequestObj.OutputTokens = msgThreadEntity.OutputTokens;
+                        msgRequestObj.TotalTokens = msgThreadEntity.TotalTokens;
+                        msgRequestObj.LoadDuration = msgThreadEntity.LoadDuration;
+                        msgRequestObj.PromptDuration = msgThreadEntity.PromptDuration;
+                        msgRequestObj.EvalDuration = msgThreadEntity.EvalDuration;
+                        msgRequestObj.Input = msgThreadEntity.Input;
+                        msgRequestObj.Output = msgThreadEntity.Output;
+                        msgRequestObj.FinishReason = msgThreadEntity.FinishReason;
+                        msgRequestObj.ThreadId = msgThreadEntity.Id;
+
+                        MyMsgContext.MsgRequestIdObjs.Update(msgRequestObj);
                         MyMsgContext.MsgThreadEntities.Update(msgThreadEntity);
                         await MyMsgContext.SaveChangesAsync();
                     }
@@ -684,7 +715,7 @@ namespace Onllama.MondrianGateway
                         if (json.TryGetValue("choices", out var choices))
                         {
                             var choice = choices.FirstOrDefault();
-                            msgThreadEntity.FinishReason = choice["finish_reason"]?.ToString();
+                            msgThreadEntity.FinishReason = choice["finish_reason"] + ":" + (int) response.StatusCode;
                             msgThreadEntity.Output = choice["message"]?["role"] + ":" + choice["message"]?["content"];
                         }
                         else if (json.TryGetValue("message", out var msg))
@@ -692,7 +723,7 @@ namespace Onllama.MondrianGateway
                             try
                             {
                                 msgThreadEntity.Output = msg["role"] + ":" + msg["content"];
-                                msgThreadEntity.FinishReason = json["done_reason"]?.ToString();
+                                msgThreadEntity.FinishReason = json["done_reason"] + ":" + (int)response.StatusCode;
                                 msgThreadEntity.InputTokens = json["prompt_eval_count"].ToObject<int>();
                                 msgThreadEntity.OutputTokens = json["eval_count"].ToObject<int>();
                                 msgThreadEntity.TotalTokens = msgThreadEntity.InputTokens + msgThreadEntity.OutputTokens;
@@ -708,13 +739,13 @@ namespace Onllama.MondrianGateway
                         }
                         else
                         {
-                            msgThreadEntity.FinishReason = "error:" + response.StatusCode;
+                            msgThreadEntity.FinishReason = "error:" + (int) response.StatusCode;
                             msgThreadEntity.Output = resBody;
                         }
                     }
                     catch (Exception e)
                     {
-                        msgThreadEntity.FinishReason = "error:" + response.StatusCode;
+                        msgThreadEntity.FinishReason = "error:" + (int) response.StatusCode;
                         msgThreadEntity.Output = resBody;
                         Console.WriteLine(e);
                     }
@@ -748,6 +779,17 @@ namespace Onllama.MondrianGateway
                     response = await context.ForwardTo(new Uri(TargetApiUrl + path)).Send();
                     response.Headers.Add("X-Forwarder-By", "MondrianGateway/0.1");
                     //Console.WriteLine(await response.Content.ReadAsStringAsync());
+
+                    if (UseLog && context.Items.TryGetValue("RequestObj", out var reqObj) &&
+                        reqObj is MsgRequestIdObj msgRequestObj)
+                    {
+                        msgRequestObj.StartTime = msgRequestObj.Time;
+                        msgRequestObj.EndTime = DateTime.UtcNow;
+                        msgRequestObj.FinishReason = response.StatusCode.ToString().ToLower() + ":" + (int) response.StatusCode;
+                        MyMsgContext.MsgRequestIdObjs.Update(msgRequestObj);
+                        await MyMsgContext.SaveChangesAsync();
+                    }
+
                     return response;
                 }
                 catch (Exception e)
