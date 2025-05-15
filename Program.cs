@@ -34,10 +34,6 @@ namespace Onllama.MondrianGateway
 
         public static bool UseLog = true;
 
-        //public static string RedisDBStr = File.ReadAllText("redis.text").Trim();
-        //public static ConnectionMultiplexer RedisConnection;
-        //public static IDatabase RedisDatabase;
-
         public static string ReplaceTokenMode = "failback";
         public static List<string> ReplaceTokensList = ["sk-test"];
 
@@ -47,7 +43,7 @@ namespace Onllama.MondrianGateway
 
         public static Dictionary<string, string> ModelReplaceDictionary = new()
         {
-            {"gpt-3.5-turbo", "qwen2.5:7b"}
+            {"gpt-3.5-turbo", "qwen3:4b"}
         };
 
         public static List<string> TokensList = ["sk-test-token"];
@@ -55,7 +51,6 @@ namespace Onllama.MondrianGateway
 
         public static OllamaApiClient OllamaApi = new OllamaApiClient(new Uri(ActionApiUrl));
 
-        //public static Dictionary<HashSet<string>, List<Message>> HashsDictionary = new();
         public static FastCache<Guid, string> MsgThreads = new FastCache<Guid, string>();
 
         public static MsgContext MyMsgContext = new MsgContext();
@@ -139,9 +134,6 @@ namespace Onllama.MondrianGateway
                         OllamaApi = new OllamaApiClient(new Uri(ActionApiUrl));
                     }
                 }
-
-                //RedisConnection = ConnectionMultiplexer.Connect(RedisDBStr);
-                //RedisDatabase = RedisConnection.GetDatabase();
 
                 var host = new WebHostBuilder()
                     .UseKestrel()
