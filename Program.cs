@@ -268,7 +268,7 @@ namespace Onllama.MondrianGateway
 
                                                     var msgThreadEntity = new MsgThreadEntity()
                                                     {
-                                                        ReqTime = GetCurrentTimeStamp(),
+                                                        ReqTime = DateTime.UtcNow,
                                                         Hashes = hashesId,
                                                         Input = inputMsg,
                                                         Body = jBody.ToString(),
@@ -291,7 +291,7 @@ namespace Onllama.MondrianGateway
                                                         msgThreadEntity = MyMsgContext.MsgThreadEntities
                                                             .FirstOrDefault(x =>
                                                                 x.Id == msgThreadId.ToString());
-                                                        msgThreadEntity.ReqTime = GetCurrentTimeStamp();
+                                                        msgThreadEntity.ReqTime = DateTime.UtcNow;
                                                         msgThreadEntity.Input = inputMsg;
                                                         msgThreadEntity.Output = string.Empty;
                                                         msgThreadEntity.Body = jBody.ToString();
@@ -394,7 +394,7 @@ namespace Onllama.MondrianGateway
                                             {
                                                 var msgThreadEntity = (MsgThreadEntity)context.Items["MsgThreadEntity"];
                                                 msgThreadEntity.FinishReason = "risk:" + risks;
-                                                msgThreadEntity.EndTime = GetCurrentTimeStamp();
+                                                msgThreadEntity.EndTime = DateTime.UtcNow;
                                                 MyMsgContext.MsgThreadEntities.Update(msgThreadEntity);
                                                 await MyMsgContext.SaveChangesAsync();
                                             }
@@ -564,15 +564,15 @@ namespace Onllama.MondrianGateway
                                             Console.WriteLine("___________");
                                             msgThreadEntity.Output = deltaRole + ":" + deltas;
                                             msgThreadEntity.PromptDuration = 0;
-                                            msgThreadEntity.EvalDuration = msgThreadEntity.EndTime - msgThreadEntity.StartTime;
-                                            msgThreadEntity.LoadDuration = msgThreadEntity.StartTime - msgThreadEntity.ReqTime;
+                                            msgThreadEntity.EvalDuration = (msgThreadEntity.EndTime - msgThreadEntity.StartTime ?? new TimeSpan(0)).Milliseconds;
+                                            msgThreadEntity.LoadDuration = (msgThreadEntity.StartTime - msgThreadEntity.ReqTime ?? new TimeSpan(0)).Milliseconds;
                                             msgThreadEntity.Time = DateTime.Now;
                                             Console.WriteLine(JsonConvert.SerializeObject(msgThreadEntity));
                                         }
                                         else
                                         {
                                             var json = JObject.Parse(jsonStr);
-                                            if (string.IsNullOrEmpty(deltas)) msgThreadEntity.StartTime = GetCurrentTimeStamp();
+                                            if (string.IsNullOrEmpty(deltas)) msgThreadEntity.StartTime = DateTime.UtcNow;
 
                                             if (json.ContainsKey("tool_calls") && json["tool_calls"]!.Any())
                                             {
@@ -597,12 +597,11 @@ namespace Onllama.MondrianGateway
                                                     msgThreadEntity.FinishReason = json["done_reason"]?.ToString();
                                                     msgThreadEntity.InputTokens = json["prompt_eval_count"].ToObject<int>();
                                                     msgThreadEntity.OutputTokens = json["eval_count"].ToObject<int>();
-                                                    msgThreadEntity.TotalTokens = msgThreadEntity.InputTokens +
-                                                        msgThreadEntity.OutputTokens;
-                                                    msgThreadEntity.LoadDuration = (long)(json["load_duration"].ToObject<long>() / 1e9);
-                                                    msgThreadEntity.PromptDuration = (long)(json["prompt_eval_duration"].ToObject<long>() / 1e9);
-                                                    msgThreadEntity.EvalDuration = (long)(json["eval_duration"].ToObject<long>() / 1e9);
-                                                    msgThreadEntity.EndTime = GetCurrentTimeStamp();
+                                                    msgThreadEntity.TotalTokens = msgThreadEntity.InputTokens + msgThreadEntity.OutputTokens;
+                                                    msgThreadEntity.LoadDuration = (long)(json["load_duration"].ToObject<long>() / 1e8);
+                                                    msgThreadEntity.PromptDuration = (long)(json["prompt_eval_duration"].ToObject<long>() / 1e8);
+                                                    msgThreadEntity.EvalDuration = (long)(json["eval_duration"].ToObject<long>() / 1e8);
+                                                    msgThreadEntity.EndTime = DateTime.UtcNow;
                                                 }
                                             }
 
@@ -617,7 +616,7 @@ namespace Onllama.MondrianGateway
                                                     if (choice?["finish_reason"] != null)
                                                     {
                                                         msgThreadEntity.FinishReason = choice["finish_reason"]?.ToString();
-                                                        msgThreadEntity.EndTime = GetCurrentTimeStamp();
+                                                        msgThreadEntity.EndTime = DateTime.UtcNow;
                                                     }
                                                 }
                                             }
@@ -703,13 +702,11 @@ namespace Onllama.MondrianGateway
                                 msgThreadEntity.FinishReason = json["done_reason"]?.ToString();
                                 msgThreadEntity.InputTokens = json["prompt_eval_count"].ToObject<int>();
                                 msgThreadEntity.OutputTokens = json["eval_count"].ToObject<int>();
-                                msgThreadEntity.TotalTokens =
-                                    msgThreadEntity.InputTokens + msgThreadEntity.OutputTokens;
+                                msgThreadEntity.TotalTokens = msgThreadEntity.InputTokens + msgThreadEntity.OutputTokens;
                                 msgThreadEntity.LoadDuration = (long) (json["load_duration"].ToObject<long>() / 1e9);
-                                msgThreadEntity.PromptDuration =
-                                    (long) (json["prompt_eval_duration"].ToObject<long>() / 1e9);
+                                msgThreadEntity.PromptDuration = (long) (json["prompt_eval_duration"].ToObject<long>() / 1e9);
                                 msgThreadEntity.EvalDuration = (long) (json["eval_duration"].ToObject<long>() / 1e9);
-                                msgThreadEntity.EndTime = GetCurrentTimeStamp();
+                                msgThreadEntity.EndTime = DateTime.UtcNow;
                             }
                             catch (Exception e)
                             {
@@ -730,10 +727,10 @@ namespace Onllama.MondrianGateway
                     }
 
                     msgThreadEntity.StartTime = msgThreadEntity.ReqTime;
-                    msgThreadEntity.EndTime = GetCurrentTimeStamp();
+                    msgThreadEntity.EndTime = DateTime.UtcNow;
                     msgThreadEntity.LoadDuration = 0;
                     msgThreadEntity.PromptDuration = 0;
-                    msgThreadEntity.EvalDuration = msgThreadEntity.EndTime - msgThreadEntity.ReqTime;
+                    msgThreadEntity.EvalDuration = (msgThreadEntity.EndTime - msgThreadEntity.ReqTime ?? new TimeSpan(0)).Milliseconds;
 
                     MyMsgContext.MsgThreadEntities.Update(msgThreadEntity);
                     await MyMsgContext.SaveChangesAsync();
@@ -767,12 +764,6 @@ namespace Onllama.MondrianGateway
                     return response;
                 }
             });
-        }
-
-        public static long GetCurrentTimeStamp(bool isMinseconds = false)
-        {
-            var ts = DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, 0);
-            return Convert.ToInt64(isMinseconds ? ts.TotalMilliseconds : ts.TotalSeconds);
         }
     }
 

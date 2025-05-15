@@ -36,10 +36,10 @@ namespace Onllama.MondrianGateway
         [DisplayName("输出 Token")] public int? OutputTokens { get; set; }
         [DisplayName("输出 Token")] public int? TotalTokens { get; set; }
 
-        [DisplayName("创建时间")] public DateTime? Time { get; set; } = DateTime.Now;
-        [DisplayName("请求时间")] public long? ReqTime { get; set; }
-        [DisplayName("开始时间")] public long? StartTime { get; set; }
-        [DisplayName("结束时间")] public long? EndTime { get; set; }
+        [DisplayName("创建时间")] public DateTime? Time { get; set; } = DateTime.UtcNow;
+        [DisplayName("请求时间")] public DateTime? ReqTime { get; set; }
+        [DisplayName("开始时间")] public DateTime? StartTime { get; set; }
+        [DisplayName("结束时间")] public DateTime? EndTime { get; set; }
         [DisplayName("结束")] public string? FinishReason { get; set; }
     }
 
@@ -55,7 +55,7 @@ namespace Onllama.MondrianGateway
         [DisplayName("请求方式")] public string? Method { get; set; }
         [DisplayName("请求头")] public string? Header { get; set; }
         [DisplayName("客户端")] public string? UserAgent { get; set; }
-        [DisplayName("创建时间")] public DateTime? Time { get; set; } = DateTime.Now;
+        [DisplayName("创建时间")] public DateTime? Time { get; set; } = DateTime.UtcNow;
     }
 
     public class RequestHashesObj
@@ -64,6 +64,6 @@ namespace Onllama.MondrianGateway
         [DisplayName("项目 ID")] public string ProjectId { get; set; } = "default";
         [DisplayName("回合 ID")] public string? RoundId { get; set; }
         [DisplayName("输入内容")] public string? Input { get; set; }
-        [DisplayName("创建时间")] public DateTime? Time { get; set; } = DateTime.Now;
+        [DisplayName("创建时间")] public DateTime? Time { get; set; } = DateTime.UtcNow;
     }
 }
