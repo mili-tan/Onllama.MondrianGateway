@@ -20,7 +20,7 @@ namespace Onllama.MondrianGateway
     internal class Program
     {
         public static List<string> NonChatApiPathList =
-            ["/api/generate", "/api/chat", "/api/tags", "/api/embed", "/api/show", "/api/ps", "/api/embeddings"];
+            ["/api/generate", "/api/tags", "/api/embed", "/api/show", "/api/ps", "/api/embeddings"];
 
         public static string TargetApiUrl = "http://127.0.0.1:11434";
         public static string ActionApiUrl = "http://127.0.0.1:11434";
@@ -432,258 +432,8 @@ namespace Onllama.MondrianGateway
 
                         app.UseRouting().UseEndpoints(endpoint =>
                         {
-                            endpoint.Map("/v1/chat/completions", async context =>
-                            {
-                                var jBody = (JObject) context.Items["JBody"]!;
-                                var isStream = jBody.ContainsKey("stream") && jBody["stream"]!.ToObject<bool>();
-
-                                Console.WriteLine(TargetApiUrl + context.Request.PathBase + context.Request.Path);
-                                Console.WriteLine("CHAT:" + jBody);
-
-                                //try
-                                //{
-                                //    if (context.Items.TryGetValue("RequestObj", out var rObj) &&
-                                //        rObj is MsgRequestIdObj requestObj)
-                                //    {
-                                //        requestObj.Hashes = hashesId;
-                                //        MyMsgContext.MsgRequestIdObjs.Update(requestObj);
-                                //        await MyMsgContext.SaveChangesAsync();
-                                //    }
-                                //}
-                                //catch (Exception e)
-                                //{
-                                //    Console.WriteLine(e);
-                                //}
-
-                                var msgThreadEntity = (MsgThreadEntity)context.Items["MsgThreadEntity"];
-
-                                if (isStream)
-                                {
-                                    try
-                                    {
-                                        // 配置响应头
-                                        context.Response.ContentType = "text/plain; charset=utf-8";
-                                        context.Response.Headers.CacheControl = "no-cache";
-                                        context.Response.Headers.Connection = "keep-alive";
-
-                                        using var httpClient = new HttpClient();
-                                        var apiUrl = TargetApiUrl + context.Request.PathBase + context.Request.Path;
-
-
-                                        var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
-
-                                        request.Headers.Clear();
-                                        foreach (var header in context.Request.Headers)
-                                            if (!header.Key.Equals("Content-Length",
-                                                    StringComparison.OrdinalIgnoreCase))
-                                                request.Headers.TryAddWithoutValidation(header.Key,
-                                                    header.Value.ToArray());
-
-                                        request.Content =
-                                            new StringContent(jBody.ToString(),
-                                                Encoding.UTF8, "application/json");
-
-                                        // 关键：使用 ResponseHeadersRead 模式立即获取流
-                                        var response = await httpClient.SendAsync(request,
-                                            HttpCompletionOption.ResponseHeadersRead);
-
-                                        if (!response.IsSuccessStatusCode)
-                                        {
-                                            context.Response.StatusCode = (int) response.StatusCode;
-                                            var msg = await response.Content.ReadAsStringAsync();
-                                            await context.Response.WriteAsync(msg);
-                                            msgThreadEntity.Output = msg;
-                                            msgThreadEntity.FinishReason = "error:" + response.StatusCode;
-
-                                            MyMsgContext.MsgThreadEntities.Update(msgThreadEntity);
-                                            await MyMsgContext.SaveChangesAsync();
-
-                                            Console.WriteLine(msg);
-                                            return;
-                                        }
-
-                                        // 获取响应流
-                                        using var stream = await response.Content.ReadAsStreamAsync();
-                                        using var reader = new StreamReader(stream);
-
-                                        // 流式读取
-                                        var buffer = new char[1024];
-                                        var sb = new StringBuilder();
-                                        var lines = new List<string>();
-
-                                        var deltas = "";
-                                        var deltaRole = "";
-
-                                        while (true)
-                                        {
-                                            var bytesRead = await reader.ReadAsync(buffer, 0, buffer.Length);
-                                            if (bytesRead == 0) break;
-
-                                            sb.Append(buffer, 0, bytesRead);
-
-                                            // 处理完整行
-                                            while (sb.Length > 0)
-                                            {
-                                                var newLineIndex = sb.ToString().IndexOf('\n');
-                                                if (newLineIndex < 0) break;
-
-                                                var line = sb.ToString(0, newLineIndex).Trim();
-                                                sb.Remove(0, newLineIndex + 1);
-
-                                                lines.Add(line);
-                                                Console.WriteLine(line);
-
-                                                if (!string.IsNullOrEmpty(line))
-                                                {
-                                                    if (line.StartsWith("data: "))
-                                                    {
-                                                        try
-                                                        {
-                                                            var jsonStr = line.Substring(6);
-                                                            if (jsonStr == "[DONE]")
-                                                            {
-                                                                Console.WriteLine("___________");
-                                                                msgThreadEntity.Output = deltaRole + ":" + deltas;
-                                                                msgThreadEntity.PromptDuration = 0;
-                                                                msgThreadEntity.EvalDuration = msgThreadEntity.EndTime - msgThreadEntity.StartTime;
-                                                                msgThreadEntity.LoadDuration = msgThreadEntity.StartTime - msgThreadEntity.ReqTime;
-                                                                msgThreadEntity.Time = DateTime.Now;
-                                                                Console.WriteLine(JsonConvert.SerializeObject(msgThreadEntity));
-                                                            }
-                                                            else
-                                                            {
-                                                                var json = JObject.Parse(jsonStr);
-                                                                if (string.IsNullOrEmpty(deltas)) msgThreadEntity.StartTime = GetCurrentTimeStamp();
-
-                                                                if (json.ContainsKey("tool_calls") && json["tool_calls"]!.Any())
-                                                                {
-                                                                    deltas = json["tool_calls"]?.ToString();
-                                                                    deltaRole = "tool";
-                                                                }
-                                                                if (json.ContainsKey("function_call") && json["function_call"]!.Any())
-                                                                {
-                                                                    deltas = json["function_call"]?.ToString();
-                                                                    deltaRole = "tool";
-                                                                }
-
-                                                                if (json.ContainsKey("choices") && json["choices"]!.Any())
-                                                                {
-                                                                    foreach (var choice in json["choices"]!)
-                                                                    {
-                                                                        var delta = choice?["delta"];
-                                                                        if (delta?["role"] != null)
-                                                                            deltaRole = delta["role"]?.ToString();
-                                                                        if (delta?["content"] != null)
-                                                                            deltas += delta["content"]?.ToString();
-
-                                                                        if (choice?["finish_reason"] != null)
-                                                                        {
-                                                                            msgThreadEntity.FinishReason = choice["finish_reason"]?.ToString();
-                                                                            msgThreadEntity.EndTime = GetCurrentTimeStamp();
-                                                                        }
-                                                                    }
-                                                                }
-
-                                                                if (json.TryGetValue("usage", out var usage))
-                                                                {
-                                                                    msgThreadEntity.InputTokens = usage["prompt_tokens"]
-                                                                        ?.ToObject<int>();
-                                                                    msgThreadEntity.OutputTokens = usage["completion_tokens"]
-                                                                        ?.ToObject<int>();
-                                                                    msgThreadEntity.TotalTokens = usage["total_tokens"]
-                                                                        ?.ToObject<int>();
-                                                                }
-                                                            }
-                                                        }
-                                                        catch (Exception e)
-                                                        {
-                                                            Console.WriteLine(e);
-                                                        }
-                                                    }
-                                                }
-
-                                                await context.Response.WriteAsync(line + Environment.NewLine);
-                                                await context.Response.Body.FlushAsync();
-                                            }
-
-                                            var statusCode = Convert.ToInt32(response.StatusCode);
-                                            if (UseTokenReplace && ReplaceTokenMode == "failback" &&
-                                                ReplaceTokensList.Any() &&
-                                                statusCode is >= 400 and < 500)
-                                            {
-                                                ReplaceTokensList.Add(ReplaceTokensList.First());
-                                                ReplaceTokensList.RemoveAt(0);
-                                            }
-                                        }
-
-                                        MyMsgContext.MsgThreadEntities.Update(msgThreadEntity);
-                                        await MyMsgContext.SaveChangesAsync();
-                                    }
-                                    catch (Exception e)
-                                    {
-                                        Console.WriteLine(e);
-                                    }
-
-                                    await context.Response.CompleteAsync();
-                                }
-                                else
-                                {
-                                    var response = await context.ForwardTo(new Uri(TargetApiUrl)).Send();
-                                    response.Headers.Add("X-Forwarder-By", "MondrianGateway/0.1");
-                                    context.Response.StatusCode = (int)response.StatusCode;
-
-                                    var resBody = await response.Content.ReadAsStringAsync();
-                                    await context.Response.WriteAsync(resBody);
-
-                                    try
-                                    {
-                                        var json = JObject.Parse(resBody);
-                                        if (json.TryGetValue("usage", out var usage))
-                                        {
-                                            msgThreadEntity.InputTokens = usage["prompt_tokens"]
-                                                ?.ToObject<int>();
-                                            msgThreadEntity.OutputTokens = usage["completion_tokens"]
-                                                ?.ToObject<int>();
-                                            msgThreadEntity.TotalTokens = usage["total_tokens"]
-                                                ?.ToObject<int>();
-                                        }
-                                        if (json.TryGetValue("choices", out var choices))
-                                        {
-                                            var choice = choices.FirstOrDefault();
-                                            msgThreadEntity.FinishReason = choice["finish_reason"]?.ToString();
-                                            msgThreadEntity.Output = choice["message"]?["role"] + ":" +
-                                                                     choice["message"]?["content"];
-                                        }
-                                        else
-                                        {
-                                            msgThreadEntity.FinishReason = "error:" + response.StatusCode;
-                                            msgThreadEntity.Output = resBody;
-                                        }
-                                    }
-                                    catch (Exception e)
-                                    {
-                                        msgThreadEntity.FinishReason = "error:" + response.StatusCode;
-                                        msgThreadEntity.Output = resBody;
-                                        Console.WriteLine(e);
-                                    }
-
-                                    msgThreadEntity.StartTime = msgThreadEntity.ReqTime;
-                                    msgThreadEntity.EndTime = GetCurrentTimeStamp();
-                                    msgThreadEntity.LoadDuration = 0;
-                                    msgThreadEntity.PromptDuration = 0;
-                                    msgThreadEntity.EvalDuration = msgThreadEntity.EndTime - msgThreadEntity.ReqTime;
-
-                                    MyMsgContext.MsgThreadEntities.Update(msgThreadEntity);
-                                    await MyMsgContext.SaveChangesAsync();
-
-                                    if (UseTokenReplace && ReplaceTokenMode == "failback" && ReplaceTokensList.Any() &&
-                                        context.Response.StatusCode is >= 400 and < 500)
-                                    {
-                                        ReplaceTokensList.Add(ReplaceTokensList.First());
-                                        ReplaceTokensList.RemoveAt(0);
-                                    }
-                                }
-                            });
+                            endpoint.Map("/api/chat", HandleChatApi);
+                            endpoint.Map("/v1/chat/completions", HandleChatApi);
                         });
                         app.Map("/v1", svr => HandleNonChatApi(svr, "/v1"));
 
@@ -694,6 +444,270 @@ namespace Onllama.MondrianGateway
             catch (Exception e)
             {
                 Console.WriteLine(e);
+            }
+        }
+
+        private static async Task HandleChatApi(HttpContext context)
+        {
+            var jBody = (JObject) context.Items["JBody"]!;
+            var isStream = jBody.ContainsKey("stream") && jBody["stream"]!.ToObject<bool>();
+
+            Console.WriteLine(TargetApiUrl + context.Request.PathBase + context.Request.Path);
+            Console.WriteLine("CHAT:" + jBody);
+
+            //try
+            //{
+            //    if (context.Items.TryGetValue("RequestObj", out var rObj) &&
+            //        rObj is MsgRequestIdObj requestObj)
+            //    {
+            //        requestObj.Hashes = hashesId;
+            //        MyMsgContext.MsgRequestIdObjs.Update(requestObj);
+            //        await MyMsgContext.SaveChangesAsync();
+            //    }
+            //}
+            //catch (Exception e)
+            //{
+            //    Console.WriteLine(e);
+            //}
+
+            var msgThreadEntity = (MsgThreadEntity) context.Items["MsgThreadEntity"];
+
+            if (isStream)
+            {
+                try
+                {
+                    // 配置响应头
+                    context.Response.ContentType = "text/plain; charset=utf-8";
+                    context.Response.Headers.CacheControl = "no-cache";
+                    context.Response.Headers.Connection = "keep-alive";
+
+                    using var httpClient = new HttpClient();
+                    var apiUrl = TargetApiUrl + context.Request.PathBase + context.Request.Path;
+
+
+                    var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
+
+                    request.Headers.Clear();
+                    foreach (var header in context.Request.Headers)
+                        if (!header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase))
+                            request.Headers.TryAddWithoutValidation(header.Key, header.Value.ToArray());
+
+                    request.Content = new StringContent(jBody.ToString(), Encoding.UTF8, "application/json");
+
+                    // 关键：使用 ResponseHeadersRead 模式立即获取流
+                    var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        context.Response.StatusCode = (int) response.StatusCode;
+                        var msg = await response.Content.ReadAsStringAsync();
+                        await context.Response.WriteAsync(msg);
+                        msgThreadEntity.Output = msg;
+                        msgThreadEntity.FinishReason = "error:" + response.StatusCode;
+
+                        MyMsgContext.MsgThreadEntities.Update(msgThreadEntity);
+                        await MyMsgContext.SaveChangesAsync();
+
+                        Console.WriteLine(msg);
+                        return;
+                    }
+
+                    // 获取响应流
+                    using var stream = await response.Content.ReadAsStreamAsync();
+                    using var reader = new StreamReader(stream);
+
+                    // 流式读取
+                    var buffer = new char[1024];
+                    var sb = new StringBuilder();
+                    var lines = new List<string>();
+
+                    var deltas = "";
+                    var deltaRole = "";
+
+                    while (true)
+                    {
+                        var bytesRead = await reader.ReadAsync(buffer, 0, buffer.Length);
+                        if (bytesRead == 0) break;
+
+                        sb.Append(buffer, 0, bytesRead);
+
+                        // 处理完整行
+                        while (sb.Length > 0)
+                        {
+                            var newLineIndex = sb.ToString().IndexOf('\n');
+                            if (newLineIndex < 0) break;
+
+                            var line = sb.ToString(0, newLineIndex).Trim();
+                            sb.Remove(0, newLineIndex + 1);
+
+                            lines.Add(line);
+                            Console.WriteLine(line);
+
+                            if (!string.IsNullOrEmpty(line))
+                            {
+                                if (line.StartsWith("data: ") || line.StartsWith("{"))
+                                {
+                                    try
+                                    {
+                                        var jsonStr = line.StartsWith("data: ") ? line.Substring(6) : line;
+                                        if (jsonStr == "[DONE]")
+                                        {
+                                            Console.WriteLine("___________");
+                                            msgThreadEntity.Output = deltaRole + ":" + deltas;
+                                            msgThreadEntity.PromptDuration = 0;
+                                            msgThreadEntity.EvalDuration = msgThreadEntity.EndTime - msgThreadEntity.StartTime;
+                                            msgThreadEntity.LoadDuration = msgThreadEntity.StartTime - msgThreadEntity.ReqTime;
+                                            msgThreadEntity.Time = DateTime.Now;
+                                            Console.WriteLine(JsonConvert.SerializeObject(msgThreadEntity));
+                                        }
+                                        else
+                                        {
+                                            var json = JObject.Parse(jsonStr);
+                                            if (string.IsNullOrEmpty(deltas)) msgThreadEntity.StartTime = GetCurrentTimeStamp();
+
+                                            if (json.ContainsKey("tool_calls") && json["tool_calls"]!.Any())
+                                            {
+                                                deltas = json["tool_calls"]?.ToString();
+                                                deltaRole = "tool";
+                                            }
+
+                                            if (json.ContainsKey("function_call") && json["function_call"]!.Any())
+                                            {
+                                                deltas = json["function_call"]?.ToString();
+                                                deltaRole = "tool";
+                                            }
+
+                                            if (json.TryGetValue("message", out var msg))
+                                            {
+                                                if (msg?["role"] != null) deltaRole = msg["role"]?.ToString();
+                                                if (msg?["content"] != null) deltas += msg["content"]?.ToString();
+
+                                                if (json?["done"]?.ToObject<bool>() ?? false)
+                                                {
+                                                    msgThreadEntity.Output = deltaRole + ":" + deltas;
+                                                    msgThreadEntity.FinishReason = json["done_reason"]?.ToString();
+                                                    msgThreadEntity.InputTokens = json["prompt_eval_count"].ToObject<int>();
+                                                    msgThreadEntity.OutputTokens = json["eval_count"].ToObject<int>();
+                                                    msgThreadEntity.TotalTokens = msgThreadEntity.InputTokens +
+                                                        msgThreadEntity.OutputTokens;
+                                                    msgThreadEntity.LoadDuration = (long)(json["load_duration"].ToObject<long>() / 1e9);
+                                                    msgThreadEntity.PromptDuration = (long)(json["prompt_eval_duration"].ToObject<long>() / 1e9);
+                                                    msgThreadEntity.EvalDuration = (long)(json["eval_duration"].ToObject<long>() / 1e9);
+                                                    msgThreadEntity.EndTime = GetCurrentTimeStamp();
+                                                }
+                                            }
+
+                                            if (json.ContainsKey("choices") && json["choices"]!.Any())
+                                            {
+                                                foreach (var choice in json["choices"]!)
+                                                {
+                                                    var delta = choice?["delta"];
+                                                    if (delta?["role"] != null) deltaRole = delta["role"]?.ToString();
+                                                    if (delta?["content"] != null) deltas += delta["content"]?.ToString();
+
+                                                    if (choice?["finish_reason"] != null)
+                                                    {
+                                                        msgThreadEntity.FinishReason = choice["finish_reason"]?.ToString();
+                                                        msgThreadEntity.EndTime = GetCurrentTimeStamp();
+                                                    }
+                                                }
+                                            }
+
+                                            if (json.TryGetValue("usage", out var usage))
+                                            {
+                                                msgThreadEntity.InputTokens = usage["prompt_tokens"]
+                                                    ?.ToObject<int>();
+                                                msgThreadEntity.OutputTokens = usage["completion_tokens"]
+                                                    ?.ToObject<int>();
+                                                msgThreadEntity.TotalTokens = usage["total_tokens"]
+                                                    ?.ToObject<int>();
+                                            }
+                                        }
+                                    }
+                                    catch (Exception e)
+                                    {
+                                        Console.WriteLine(e);
+                                    }
+                                }
+                            }
+
+                            await context.Response.WriteAsync(line + Environment.NewLine);
+                            await context.Response.Body.FlushAsync();
+                        }
+
+                        var statusCode = Convert.ToInt32(response.StatusCode);
+                        if (UseTokenReplace && ReplaceTokenMode == "failback" && ReplaceTokensList.Any() && statusCode is >= 400 and < 500)
+                        {
+                            ReplaceTokensList.Add(ReplaceTokensList.First());
+                            ReplaceTokensList.RemoveAt(0);
+                        }
+                    }
+
+                    MyMsgContext.MsgThreadEntities.Update(msgThreadEntity);
+                    await MyMsgContext.SaveChangesAsync();
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e);
+                }
+
+                await context.Response.CompleteAsync();
+            }
+            else
+            {
+                var response = await context.ForwardTo(new Uri(TargetApiUrl)).Send();
+                response.Headers.Add("X-Forwarder-By", "MondrianGateway/0.1");
+                context.Response.StatusCode = (int) response.StatusCode;
+
+                var resBody = await response.Content.ReadAsStringAsync();
+                await context.Response.WriteAsync(resBody);
+
+                try
+                {
+                    var json = JObject.Parse(resBody);
+                    if (json.TryGetValue("usage", out var usage))
+                    {
+                        msgThreadEntity.InputTokens = usage["prompt_tokens"]
+                            ?.ToObject<int>();
+                        msgThreadEntity.OutputTokens = usage["completion_tokens"]
+                            ?.ToObject<int>();
+                        msgThreadEntity.TotalTokens = usage["total_tokens"]
+                            ?.ToObject<int>();
+                    }
+
+                    if (json.TryGetValue("choices", out var choices))
+                    {
+                        var choice = choices.FirstOrDefault();
+                        msgThreadEntity.FinishReason = choice["finish_reason"]?.ToString();
+                        msgThreadEntity.Output = choice["message"]?["role"] + ":" + choice["message"]?["content"];
+                    }
+                    else
+                    {
+                        msgThreadEntity.FinishReason = "error:" + response.StatusCode;
+                        msgThreadEntity.Output = resBody;
+                    }
+                }
+                catch (Exception e)
+                {
+                    msgThreadEntity.FinishReason = "error:" + response.StatusCode;
+                    msgThreadEntity.Output = resBody;
+                    Console.WriteLine(e);
+                }
+
+                msgThreadEntity.StartTime = msgThreadEntity.ReqTime;
+                msgThreadEntity.EndTime = GetCurrentTimeStamp();
+                msgThreadEntity.LoadDuration = 0;
+                msgThreadEntity.PromptDuration = 0;
+                msgThreadEntity.EvalDuration = msgThreadEntity.EndTime - msgThreadEntity.ReqTime;
+
+                MyMsgContext.MsgThreadEntities.Update(msgThreadEntity);
+                await MyMsgContext.SaveChangesAsync();
+
+                if (UseTokenReplace && ReplaceTokenMode == "failback" && ReplaceTokensList.Any() && context.Response.StatusCode is >= 400 and < 500)
+                {
+                    ReplaceTokensList.Add(ReplaceTokensList.First());
+                    ReplaceTokensList.RemoveAt(0);
+                }
             }
         }
 
