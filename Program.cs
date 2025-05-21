@@ -818,5 +818,9 @@ namespace Onllama.MondrianGateway
         [JsonPropertyName("tool_calls")]
         [System.Text.Json.Serialization.JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public object? ToolCalls { get; set; }
+
+        [Newtonsoft.Json.JsonExtensionData]
+        [System.Text.Json.Serialization.JsonExtensionData]
+        public IDictionary<string, object>? ExtraInfo { get; set; }
     }
 }
