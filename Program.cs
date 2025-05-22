@@ -576,7 +576,7 @@ namespace Onllama.MondrianGateway
                                             msgThreadEntity.PromptDuration = 0;
                                             msgThreadEntity.EvalDuration = (msgThreadEntity.EndTime - msgThreadEntity.StartTime ?? new TimeSpan(0)).Milliseconds;
                                             msgThreadEntity.LoadDuration = (msgThreadEntity.StartTime - msgThreadEntity.ReqTime ?? new TimeSpan(0)).Milliseconds;
-                                            msgThreadEntity.Time = DateTime.Now;
+                                            msgThreadEntity.Time = DateTime.UtcNow;
                                             Console.WriteLine(JsonConvert.SerializeObject(msgThreadEntity));
                                         }
                                         else
