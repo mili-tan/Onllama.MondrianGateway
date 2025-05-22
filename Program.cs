@@ -750,12 +750,27 @@ namespace Onllama.MondrianGateway
                         Console.WriteLine(e);
                     }
 
+                    msgThreadEntity.Body = resBody;
                     msgThreadEntity.StartTime = msgThreadEntity.ReqTime;
                     msgThreadEntity.EndTime = DateTime.UtcNow;
                     msgThreadEntity.LoadDuration = 0;
                     msgThreadEntity.PromptDuration = 0;
                     msgThreadEntity.EvalDuration = (msgThreadEntity.EndTime - msgThreadEntity.ReqTime ?? new TimeSpan(0)).Milliseconds;
 
+                    msgRequestObj.StartTime = msgThreadEntity.StartTime;
+                    msgRequestObj.EndTime = msgThreadEntity.EndTime;
+                    msgRequestObj.InputTokens = msgThreadEntity.InputTokens;
+                    msgRequestObj.OutputTokens = msgThreadEntity.OutputTokens;
+                    msgRequestObj.TotalTokens = msgThreadEntity.TotalTokens;
+                    msgRequestObj.LoadDuration = msgThreadEntity.LoadDuration;
+                    msgRequestObj.PromptDuration = msgThreadEntity.PromptDuration;
+                    msgRequestObj.EvalDuration = msgThreadEntity.EvalDuration;
+                    msgRequestObj.Input = msgThreadEntity.Input;
+                    msgRequestObj.Output = msgThreadEntity.Output;
+                    msgRequestObj.FinishReason = msgThreadEntity.FinishReason;
+                    msgRequestObj.ThreadId = msgThreadEntity.Id;
+
+                    MyMsgContext.MsgRequestIdObjs.Update(msgRequestObj);
                     MyMsgContext.MsgThreadEntities.Update(msgThreadEntity);
                     await MyMsgContext.SaveChangesAsync();
                 }
