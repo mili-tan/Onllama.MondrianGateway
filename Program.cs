@@ -206,6 +206,7 @@ namespace Onllama.MondrianGateway
                                     try
                                     {
                                         jBody = JObject.Parse(strBody);
+                                        if (jBody.ContainsKey("keep_alive")) jBody.Remove("keep_alive");
 
                                         if (jBody.ContainsKey("model") && UseModelReplace &&
                                             ModelReplaceDictionary.TryGetValue(jBody["model"]?.ToString()!,
