@@ -368,58 +368,56 @@ namespace Onllama.MondrianGateway
                                 jBodyObj is JObject jBody && jBody.TryGetValue("messages", out var msgObj))
                             {
                                 var msgs = msgObj.ToObject<List<Message>>();
-
-                                await foreach (var res in OllamaApi.ChatAsync(new ChatRequest()
-                                               {
-                                                   Model = RiskModel,
-                                                   Messages = msgs.Select(x =>
-                                                       new OllamaSharp.Models.Chat.Message(x.Role, x.Content)),
-                                                   Stream = false
-                                               }))
+                                var res = await OllamaApi.ChatAsync(new ChatRequest()
                                 {
-                                    var risks = res?.Message.Content;
-                                    if (risks != null && RiskKeywordsList.Any(x => risks.ToUpper().Contains(x.ToUpper())))
+                                    Model = RiskModel,
+                                    Messages = msgs.Select(x =>
+                                        new OllamaSharp.Models.Chat.Message(x.Role, x.Content)),
+                                    Stream = false
+                                }).StreamToEndAsync();
+
+                                var risks = res?.Message.Content;
+                                if (risks != null && RiskKeywordsList.Any(x => risks.ToUpper().Contains(x.ToUpper())))
+                                {
+                                    isRisk = true;
+                                    try
                                     {
-                                        isRisk = true;
-                                        try
+                                        if (UseLog)
                                         {
-                                            if (UseLog)
-                                            {
-                                                var msgThreadEntity =
-                                                    (MsgThreadEntity) context.Items["MsgThreadEntity"];
-                                                msgThreadEntity.FinishReason =
-                                                    "risk:" + risks.Replace(" ", "_") + ":" + 451;
-                                                msgThreadEntity.EndTime = DateTime.UtcNow;
-                                                MyMsgContext.MsgThreadEntities.Update(msgThreadEntity);
-                                                await MyMsgContext.SaveChangesAsync();
-                                            }
-
-                                            context.Response.Headers.ContentType = "application/json";
-                                            context.Response.StatusCode = 451;
-                                        }
-                                        catch (Exception e)
-                                        {
-                                            Console.WriteLine(e);
+                                            var msgThreadEntity =
+                                                (MsgThreadEntity) context.Items["MsgThreadEntity"];
+                                            msgThreadEntity.FinishReason =
+                                                "risk:" + risks.Replace(" ", "_") + ":" + 451;
+                                            msgThreadEntity.EndTime = DateTime.UtcNow;
+                                            MyMsgContext.MsgThreadEntities.Update(msgThreadEntity);
+                                            await MyMsgContext.SaveChangesAsync();
                                         }
 
-                                        await context.Response.WriteAsync(new JObject
-                                        {
-                                            {
-                                                "error",
-                                                new JObject
-                                                {
-                                                    {
-                                                        "message",
-                                                        "Messages with content security risks. Unable to continue."
-                                                    },
-                                                    {"type", "content_risks"},
-                                                    {"risk_model", res?.Model},
-                                                    {"risk_raw_msg", res?.Message.Content}
-                                                }
-                                            }
-                                        }.ToString());
-                                        return;
+                                        context.Response.Headers.ContentType = "application/json";
+                                        context.Response.StatusCode = 451;
                                     }
+                                    catch (Exception e)
+                                    {
+                                        Console.WriteLine(e);
+                                    }
+
+                                    await context.Response.WriteAsync(new JObject
+                                    {
+                                        {
+                                            "error",
+                                            new JObject
+                                            {
+                                                {
+                                                    "message",
+                                                    "Messages with content security risks. Unable to continue."
+                                                },
+                                                {"type", "content_risks"},
+                                                {"risk_model", res?.Model},
+                                                {"risk_raw_msg", res?.Message.Content}
+                                            }
+                                        }
+                                    }.ToString());
+                                    return;
                                 }
                             }
 
