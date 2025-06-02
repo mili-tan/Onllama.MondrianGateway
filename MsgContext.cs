@@ -17,7 +17,11 @@ namespace Onllama.MondrianGateway
             optionsBuilder.UseMySql(File.Exists("db.text")
                     ? File.ReadAllText("db.text").Trim()
                     : Environment.GetEnvironmentVariable("MYSQL_CONNECTION_STRING"),
-                new MySqlServerVersion("8.0.0.0"));
+                new MySqlServerVersion("8.0.0.0"),
+                sqloptions =>
+                {
+                    sqloptions.EnablePrimitiveCollectionsSupport(true);
+                });
         }
     }
 
@@ -79,5 +83,12 @@ namespace Onllama.MondrianGateway
         [DisplayName("项目 ID")] public string ProjectId { get; set; } = "default";
         [DisplayName("回合 ID")] public string? RoundId { get; set; }
         [DisplayName("请求内容")] public string? Body { get; set; }
+    }
+
+    public class ProjectsObj 
+    {
+        [Key] [DisplayName("项目 ID")] public string ProjectId { get; set; }
+        [DisplayName("密钥")] public string[]? Keys { get; set; }
+        [DisplayName("描述")] public string? Desc { get; set; }
     }
 }
