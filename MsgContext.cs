@@ -10,6 +10,7 @@ namespace Onllama.MondrianGateway
         public DbSet<MsgThreadEntity> MsgThreadEntities { get; set; }
         public DbSet<MsgRequestIdObj> MsgRequestIdObjs { get; set; }
         public DbSet<RequestHashesObj> RequestHashesObjs { get; set; }
+        public DbSet<ProjectsObj> ProjectsObjs { get; set; }
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
@@ -88,7 +89,9 @@ namespace Onllama.MondrianGateway
     public class ProjectsObj 
     {
         [Key] [DisplayName("项目 ID")] public string ProjectId { get; set; }
-        [DisplayName("密钥")] public string[]? Keys { get; set; }
+        [DisplayName("密钥")] public string? Keys { get; set; }
         [DisplayName("描述")] public string? Desc { get; set; }
+        [DisplayName("创建时间")] public DateTime? Time { get; set; } = DateTime.UtcNow;
+        [DisplayName("启用")] public bool Enabled { get; set; } = true;
     }
 }

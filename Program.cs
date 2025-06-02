@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json;
@@ -60,6 +61,18 @@ namespace Onllama.MondrianGateway
             try
             {
                 if (UseLog) MyMsgContext.Database.EnsureCreated();
+                if (!MyMsgContext.ProjectsObjs.Any())
+                {
+                    MyMsgContext.ProjectsObjs.Add(new ProjectsObj()
+                    {
+                        ProjectId = "default",
+                        Desc = "This is the default project for Mondrian Gateway.",
+                        Keys = "sk-test"
+                    });
+                    MyMsgContext.SaveChanges();
+                }
+
+                Console.WriteLine(MyMsgContext.ProjectsObjs.First(x => x.Keys.Contains("test")).ProjectId);
 
                 var configurationRoot = new ConfigurationBuilder()
                     .AddEnvironmentVariables()
