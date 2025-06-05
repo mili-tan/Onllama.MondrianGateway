@@ -30,6 +30,7 @@ namespace Onllama.MondrianGateway
         public static bool UseTokenReplace = false;
         public static bool UseModelReplace = false;
         public static bool UseRiskModel = false;
+        public static bool UseRiskRule = false;
         public static bool UseSystemPromptTrim = false;
         public static bool UseSystemPromptInject = false;
 
@@ -377,7 +378,7 @@ namespace Onllama.MondrianGateway
                         app.Use(async (context, next) =>
                         {
                             var isRisk = false;
-                            if (UseRiskModel && context.Request.Method == "POST" &&
+                            if ((UseRiskModel || UseRiskRule) && context.Request.Method == "POST" &&
                                 context.Items.TryGetValue("JBody", out var jBodyObj) &&
                                 jBodyObj is JObject jBody && jBody.TryGetValue("messages", out var msgObj))
                             {

@@ -11,6 +11,7 @@ namespace Onllama.MondrianGateway
         public DbSet<MsgRequestIdObj> MsgRequestIdObjs { get; set; }
         public DbSet<RequestHashesObj> RequestHashesObjs { get; set; }
         public DbSet<ProjectsObj> ProjectsObjs { get; set; }
+        public DbSet<RiskRuleObj> RiskRuleObjs { get; set; }
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
@@ -86,12 +87,29 @@ namespace Onllama.MondrianGateway
         [DisplayName("请求内容")] public string? Body { get; set; }
     }
 
-    public class ProjectsObj 
+    public class ProjectsObj
     {
-        [Key] [DisplayName("项目 ID")] public string ProjectId { get; set; }
+        [Key][DisplayName("项目 ID")] public string ProjectId { get; set; }
+        [DisplayName("用户 ID")] public string? UserId { get; set; } = "";
         [DisplayName("密钥")] public string? Keys { get; set; }
         [DisplayName("描述")] public string? Desc { get; set; }
         [DisplayName("创建时间")] public DateTime? Time { get; set; } = DateTime.UtcNow;
         [DisplayName("启用")] public bool Enabled { get; set; } = true;
+        [DisplayName("目标 API")] public string TargetApi { get; set; } = "https://127.0.0.1:11434";
     }
+
+    public class RiskRuleObj
+    {
+        [Key]
+        [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
+        public int Id { get; set; }
+        [DisplayName("项目 ID")] public string ProjectId { get; set; }
+        [DisplayName("风险关键性")] public string? RiskKeywords { get; set; }
+        [DisplayName("内容安全模型")] public string? RiskModel { get; set; }
+        [DisplayName("安全模型提示词")] public string? RiskModelPrompt { get; set; } = string.Empty;
+        [DisplayName("创建时间")] public DateTime? Time { get; set; } = DateTime.UtcNow;
+        [DisplayName("启用")] public bool Enabled { get; set; } = true;
+    }
+
+
 }
