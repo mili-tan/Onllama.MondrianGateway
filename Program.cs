@@ -383,18 +383,53 @@ namespace Onllama.MondrianGateway
                                 jBodyObj is JObject jBody && jBody.TryGetValue("messages", out var msgObj))
                             {
                                 var msgs = msgObj.ToObject<List<Message>>();
-                                var res = await OllamaApi.ChatAsync(new ChatRequest()
-                                {
-                                    Model = RiskModel,
-                                    Messages = msgs.Select(x =>
-                                        new OllamaSharp.Models.Chat.Message(x.Role, x.Content)),
-                                    Stream = false
-                                }).StreamToEndAsync();
+                                var risks = new List<ChatDoneResponseStream>();
 
-                                var risks = res?.Message.Content;
-                                if (risks != null && RiskKeywordsList.Any(x => risks.ToUpper().Contains(x.ToUpper())))
+                                if (!string.IsNullOrWhiteSpace(RiskModel))
+                                {
+                                    var res = await OllamaApi.ChatAsync(new ChatRequest()
+                                    {
+                                        Model = RiskModel,
+                                        Messages = msgs.Select(x =>
+                                            new OllamaSharp.Models.Chat.Message(x.Role, x.Content)),
+                                        Stream = false
+                                    }).StreamToEndAsync();
+                                    if (RiskKeywordsList.Any(x =>
+                                            res.Message.Content.Contains(x, StringComparison.OrdinalIgnoreCase)))
+                                        risks.Add(res);
+                                }
+
+                                if (MyMsgContext.RiskRuleObjs.Any())
+                                {
+                                    foreach (var item in MyMsgContext.RiskRuleObjs.Where(x => x.ProjectId == ""))
+                                    {
+                                        if (!item.Enabled) continue;
+                                        var reqMsg = msgs.Select(x =>
+                                            new OllamaSharp.Models.Chat.Message(x.Role, x.Content)).ToList();
+                                        if (string.IsNullOrWhiteSpace(item.RiskModelPrompt))
+                                            reqMsg.Insert(0, new OllamaSharp.Models.Chat.Message
+                                            {
+                                                Role = ChatRole.System,
+                                                Content = RiskModelPrompt
+                                            });
+                                        var res = await OllamaApi.ChatAsync(new ChatRequest()
+                                        {
+                                            Model = item.RiskModel ?? string.Empty,
+                                            Messages = reqMsg,
+                                            Stream = false
+                                        }).StreamToEndAsync();
+                                        if (item.RiskKeywords != null && item.RiskKeywords.Split(',').Any(x =>
+                                                res.Message.Content.Contains(x.Trim(),
+                                                    StringComparison.OrdinalIgnoreCase)))
+                                            risks.Add(res);
+                                    }
+                                }
+
+
+                                if (risks.Any())
                                 {
                                     isRisk = true;
+                                    var res = risks.First();
                                     try
                                     {
                                         if (UseLog)
@@ -402,7 +437,7 @@ namespace Onllama.MondrianGateway
                                             var msgThreadEntity =
                                                 (MsgThreadEntity) context.Items["MsgThreadEntity"];
                                             msgThreadEntity.FinishReason =
-                                                "risk:" + risks.Replace(" ", "_") + ":" + 451;
+                                                "risk:" + res.Message.Content.Replace(" ", "_") + ":" + 451;
                                             msgThreadEntity.EndTime = DateTime.UtcNow;
                                             MyMsgContext.MsgThreadEntities.Update(msgThreadEntity);
                                             await MyMsgContext.SaveChangesAsync();
