@@ -385,13 +385,20 @@ namespace Onllama.MondrianGateway
                                 var msgs = msgObj.ToObject<List<Message>>();
                                 var risks = new List<ChatDoneResponseStream>();
 
-                                if (!string.IsNullOrWhiteSpace(RiskModel))
+                                if (UseRiskModel && !string.IsNullOrWhiteSpace(RiskModel))
                                 {
+                                    var reqMsg = msgs.Select(x =>
+                                        new OllamaSharp.Models.Chat.Message(x.Role, x.Content)).ToList();
+                                    if (string.IsNullOrWhiteSpace(RiskModelPrompt))
+                                        reqMsg.Insert(0, new OllamaSharp.Models.Chat.Message
+                                        {
+                                            Role = ChatRole.System,
+                                            Content = RiskModelPrompt
+                                        });
                                     var res = await OllamaApi.ChatAsync(new ChatRequest()
                                     {
                                         Model = RiskModel,
-                                        Messages = msgs.Select(x =>
-                                            new OllamaSharp.Models.Chat.Message(x.Role, x.Content)),
+                                        Messages = reqMsg,
                                         Stream = false
                                     }).StreamToEndAsync();
                                     if (RiskKeywordsList.Any(x =>
@@ -399,7 +406,7 @@ namespace Onllama.MondrianGateway
                                         risks.Add(res);
                                 }
 
-                                if (MyMsgContext.RiskRuleObjs.Any())
+                                if (UseRiskRule && MyMsgContext.RiskRuleObjs.Any())
                                 {
                                     foreach (var item in MyMsgContext.RiskRuleObjs.Where(x => x.ProjectId == ""))
                                     {
@@ -410,7 +417,7 @@ namespace Onllama.MondrianGateway
                                             reqMsg.Insert(0, new OllamaSharp.Models.Chat.Message
                                             {
                                                 Role = ChatRole.System,
-                                                Content = RiskModelPrompt
+                                                Content = item.RiskModelPrompt
                                             });
                                         var res = await OllamaApi.ChatAsync(new ChatRequest()
                                         {
