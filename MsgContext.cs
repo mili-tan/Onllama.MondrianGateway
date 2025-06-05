@@ -89,7 +89,7 @@ namespace Onllama.MondrianGateway
 
     public class ProjectsObj
     {
-        [Key][DisplayName("项目 ID")] public string ProjectId { get; set; }
+        [Key][DisplayName("项目 ID")] public string ProjectId { get; set; } = "default";
         [DisplayName("用户 ID")] public string? UserId { get; set; } = "";
         [DisplayName("密钥")] public string? Keys { get; set; }
         [DisplayName("描述")] public string? Desc { get; set; }

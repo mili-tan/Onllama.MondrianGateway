@@ -207,11 +207,21 @@ namespace Onllama.MondrianGateway
                         {
                             try
                             {
+                                var token = context.Items.TryGetValue("Authorization", out var tokenObj)
+                                    ? tokenObj.ToString().Split(' ').LastOrDefault()
+                                    : string.Empty;
                                 var hashesId = string.Empty;
                                 var msgThreadId = Ulid.NewUlid().ToGuid();
                                 var roundId = context.Request.Headers.TryGetValue("round_id", out var roundFromHeader)
                                     ? roundFromHeader.ToString()
                                     : string.Empty;
+                                var projectId =
+                                    context.Request.Headers.TryGetValue("project_id", out var projectFromHeader)
+                                        ? projectFromHeader.ToString()
+                                        : UseLog
+                                            ? (await MyMsgContext.ProjectsObjs.FirstOrDefaultAsync(x =>
+                                                x.Keys.Contains(token)) ?? new ProjectsObj()).ProjectId
+                                            : string.Empty;
 
                                 var strBody = await new StreamReader(context.Request.Body).ReadToEndAsync();
                                 var jBody = new JObject();
@@ -233,7 +243,12 @@ namespace Onllama.MondrianGateway
                                         roundId = jBody.TryGetValue("round_id", out var roundFromBody)
                                             ? roundFromBody.ToString()
                                             : roundId;
-                                        if (!string.IsNullOrEmpty(roundId)) jBody.Remove("round_id");
+                                        if (jBody.ContainsKey("round_id")) jBody.Remove("round_id");
+
+                                        projectId = jBody.TryGetValue("project_id", out var projectFromBody)
+                                            ? projectFromBody.ToString()
+                                            : projectId;
+                                        if (jBody.ContainsKey("project_id")) jBody.Remove("project_id");
 
                                         if (jBody.ContainsKey("messages"))
                                         {
@@ -264,6 +279,7 @@ namespace Onllama.MondrianGateway
                                                             Hashes = hashesId,
                                                             RoundId = roundId,
                                                             Body = jBody.ToString(),
+                                                            ProjectId = projectId
                                                         });
                                                     }
 
@@ -280,6 +296,7 @@ namespace Onllama.MondrianGateway
                                                         Input = inputMsg,
                                                         Body = jBody.ToString(),
                                                         Id = msgThreadId.ToString(),
+                                                        ProjectId = projectId,
                                                     };
 
                                                     if (!MyMsgContext.MsgThreadEntities.Any(x => x.Id == msgThreadId.ToString()))
@@ -303,6 +320,7 @@ namespace Onllama.MondrianGateway
                                                         msgThreadEntity.Output = string.Empty;
                                                         msgThreadEntity.Body = jBody.ToString();
                                                         msgThreadEntity.Hashes = hashesId;
+                                                        msgThreadEntity.ProjectId = projectId;
                                                         MyMsgContext.MsgThreadEntities.Update(msgThreadEntity);
                                                     }
 
@@ -355,6 +373,7 @@ namespace Onllama.MondrianGateway
                                         UserAgent = context.Request.Headers["User-Agent"].ToString(),
                                         IP = context.Connection.RemoteIpAddress?.ToString(),
                                         Hashes = hashesId,
+                                        ProjectId = projectId,
                                     };
 
                                     MyMsgContext.MsgRequestIdObjs.Add(requestObj);
@@ -364,6 +383,9 @@ namespace Onllama.MondrianGateway
                                 }
 
                                 context.Items["JBody"] = jBody;
+                                //context.Items["MsgThreadId"] = msgThreadId;
+                                //context.Items["RoundId"] = roundId;
+                                context.Items["ProjectId"] = projectId;
                                 context.Request.ContentLength = context.Request.Body.Length;
                                 context.Request.Body.Position = 0;
                             }
@@ -853,6 +875,7 @@ namespace Onllama.MondrianGateway
             msgRequestObj.Output = msgThreadEntity.Output;
             msgRequestObj.FinishReason = msgThreadEntity.FinishReason;
             msgRequestObj.ThreadId = msgThreadEntity.Id;
+            msgRequestObj.ProjectId = msgThreadEntity.ProjectId;
             return msgRequestObj;
         }
 
