@@ -428,9 +428,11 @@ namespace Onllama.MondrianGateway
                                         risks.Add(res);
                                 }
 
-                                if (UseRiskRule && MyMsgContext.RiskRuleObjs.Any())
+                                if (UseRiskRule && context.Items.TryGetValue("ProjectId", out var projectId) &&
+                                    projectId != null && MyMsgContext.RiskRuleObjs.Any())
                                 {
-                                    foreach (var item in MyMsgContext.RiskRuleObjs.Where(x => x.ProjectId == ""))
+                                    foreach (var item in MyMsgContext.RiskRuleObjs.Where(x =>
+                                                 x.ProjectId == projectId.ToString()))
                                     {
                                         if (!item.Enabled) continue;
                                         var reqMsg = msgs.Select(x =>
